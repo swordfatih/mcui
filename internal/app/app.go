@@ -57,7 +57,14 @@ func projectName(name string) string {
 }
 
 type composeService struct {
-	Image string `json:"image"`
+	Image   string          `json:"image"`
+	Volumes []composeVolume `json:"volumes"`
+}
+
+type composeVolume struct {
+	Type   string `json:"type"`
+	Source string `json:"source"`
+	Target string `json:"target"`
 }
 
 type composeConfig struct {
@@ -86,20 +93,32 @@ func (a *API) composeArgs(name string) ([]string, error) {
 }
 
 func (a *API) minecraftService(name string) (Server, string, error) {
-	args, err := a.composeArgs(name)
+	config, err := a.readComposeConfig(name)
 	if err != nil {
 		return Server{}, "", err
+	}
+	return minecraftServiceFromConfig(name, config)
+}
+
+func (a *API) readComposeConfig(name string) (composeConfig, error) {
+	args, err := a.composeArgs(name)
+	if err != nil {
+		return composeConfig{}, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "docker", append(args, "config", "--format", "json")...).Output()
 	if err != nil {
-		return Server{}, "", err
+		return composeConfig{}, err
 	}
 	var config composeConfig
 	if err := json.Unmarshal(out, &config); err != nil {
-		return Server{}, "", err
+		return composeConfig{}, err
 	}
+	return config, nil
+}
+
+func minecraftServiceFromConfig(name string, config composeConfig) (Server, string, error) {
 	var server Server
 	var serviceName string
 	for service, settings := range config.Services {
@@ -124,6 +143,30 @@ func (a *API) minecraftService(name string) (Server, string, error) {
 		return Server{}, "", errors.New("no Minecraft service")
 	}
 	return server, serviceName, nil
+}
+
+func (a *API) serverDataSource(name string) (string, error) {
+	config, err := a.readComposeConfig(name)
+	if err != nil {
+		return "", err
+	}
+	_, service, err := minecraftServiceFromConfig(name, config)
+	if err != nil {
+		return "", err
+	}
+	for _, volume := range config.Services[service].Volumes {
+		if filepath.Clean(volume.Target) != "/data" {
+			continue
+		}
+		if volume.Type == "bind" && volume.Source != "" {
+			return volume.Source, nil
+		}
+		if volume.Type == "volume" && volume.Source != "" {
+			return "", nil
+		}
+		return "", fmt.Errorf("Minecraft /data volume has unsupported type %q", volume.Type)
+	}
+	return "", errors.New("Minecraft service has no /data volume")
 }
 
 func Serve(addr, root string) error {

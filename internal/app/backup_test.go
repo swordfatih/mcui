@@ -14,7 +14,8 @@ func TestBackupCapturesRestartsAndUploads(t *testing.T) {
 	if err := a.create(CreateRequest{Name: "bedrock-home", Edition: "bedrock", Port: 19132, AcceptEULA: true}); err != nil {
 		t.Fatal(err)
 	}
-	world := filepath.Join(root, "bedrock-home", "data", "worlds", "world")
+	volume := filepath.Join(root, "external-volume")
+	world := filepath.Join(volume, "worlds", "world")
 	if err := os.MkdirAll(world, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -22,6 +23,7 @@ func TestBackupCapturesRestartsAndUploads(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := t.TempDir()
+	t.Setenv("MCUI_TEST_DATA_VOLUME", volume)
 	t.Setenv("MCUI_BACKUP_DIR", config)
 	if err := os.WriteFile(filepath.Join(config, "rclone.conf"), []byte("[drive]\ntype = drive\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -36,7 +38,7 @@ case "$1" in
   inspect) echo running ;;
   compose)
     case " $* " in
-      *" config "*) echo '{"services":{"mc":{"image":"itzg/minecraft-bedrock-server:latest"}}}' ;;
+      *" config "*) printf '{"services":{"mc":{"image":"itzg/minecraft-bedrock-server:latest","volumes":[{"type":"bind","source":"%s","target":"/data"}]}}}\n' "$MCUI_TEST_DATA_VOLUME" ;;
       *" ps "*) echo container-id ;;
       *" stop "*) echo stop >> "$MCUI_TEST_OPERATIONS" ;;
       *" up "*) echo up >> "$MCUI_TEST_OPERATIONS" ;;

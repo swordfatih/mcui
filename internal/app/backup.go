@@ -212,7 +212,10 @@ func (b *BackupManager) run(name string, started time.Time) {
 	b.setState(name, state)
 }
 func (b *BackupManager) capture(ctx context.Context, name string) (string, error) {
-	serverDir := filepath.Join(b.api.Root, name)
+	dataSource, err := b.api.serverDataSource(name)
+	if err != nil {
+		return "", fmt.Errorf("resolve server data volume: %w", err)
+	}
 	status := b.api.status(ctx, name)
 	if status != "running" && status != "stopped" {
 		return "", fmt.Errorf("Cannot back up server with status %s", status)
@@ -244,7 +247,11 @@ func (b *BackupManager) capture(ctx context.Context, name string) (string, error
 			return "", fmt.Errorf("stop server before backup: %w", err)
 		}
 	}
-	err := copyBackupTree(filepath.Join(serverDir, "data"), filepath.Join(stage, "data"))
+	if dataSource == "" {
+		err = b.copyContainerData(ctx, name, filepath.Join(stage, "data"))
+	} else {
+		err = copyBackupTree(dataSource, filepath.Join(stage, "data"))
+	}
 	if err == nil {
 		var composeFile string
 		composeFile, err = b.api.composeFile(name)
@@ -266,6 +273,32 @@ func (b *BackupManager) capture(ctx context.Context, name string) (string, error
 	}
 	keep = true
 	return stage, nil
+}
+func (b *BackupManager) copyContainerData(ctx context.Context, name, destination string) error {
+	_, service, err := b.api.minecraftService(name)
+	if err != nil {
+		return err
+	}
+	args, err := b.api.composeArgs(name)
+	if err != nil {
+		return err
+	}
+	out, err := exec.CommandContext(ctx, "docker", append(args, "ps", "-a", "-q", service)...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("find container for named data volume: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	id := strings.TrimSpace(string(out))
+	if id == "" {
+		return errors.New("named data volume has no server container to copy from")
+	}
+	if err := os.Mkdir(destination, 0700); err != nil {
+		return err
+	}
+	out, err = exec.CommandContext(ctx, "docker", "cp", id+":/data/.", destination).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("copy named data volume: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
 }
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
