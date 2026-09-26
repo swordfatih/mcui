@@ -41,7 +41,7 @@ Server dashboards have shareable `/servers/<name>` URLs. Refreshing a dashboard 
 
 ## Google Drive backups
 
-MCUI uploads a standard, unencrypted `.tar.gz` archive for each backup to `<remote>:<path>/<server-name>/`. The default is `drive:mcui/<server-name>/`. Each archive contains the Compose file and a `data/` folder. [rclone](https://rclone.org/drive/) handles Google Drive access.
+MCUI uploads a standard, unencrypted `.tar.gz` archive for each backup to `<remote>:<path>/<server-name>/`. The default is `drive:mcui/<server-name>/`. Each archive contains the Compose file and a `data/` folder. Entries anywhere under `data/` whose names start with `backup` (case-insensitive) are excluded, including itzg's `backup-pre-*` upgrade copies. [rclone](https://rclone.org/drive/) handles Google Drive access.
 
 1. Install rclone on the host and configure a Google Drive remote named `drive` in `backup/rclone.conf`. Use `mkdir -p backup` followed by `rclone config --config "$PWD/backup/rclone.conf"`. rclone's shared Google client ID is being retired, so configure your own Google OAuth client ID as its Drive guide recommends. If you use a different remote name, set `MCUI_BACKUP_REMOTE` in `.env`.
 2. Set `chmod 600 backup/rclone.conf` to protect the Google Drive credentials.

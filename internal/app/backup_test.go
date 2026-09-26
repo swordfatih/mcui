@@ -25,6 +25,18 @@ func TestBackupCapturesRestartsAndUploads(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(world, "level.dat"), []byte("world data"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	for _, name := range []string{"backup-pre-1.26.52", "Backup-older"} {
+		dir := filepath.Join(volume, name)
+		if err := os.Mkdir(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "old-pack.dat"), []byte("obsolete copy"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(world, "backup-world.zip"), []byte("old world"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	config := t.TempDir()
 	t.Setenv("MCUI_TEST_DATA_VOLUME", volume)
 	t.Setenv("MCUI_BACKUP_DIR", config)
@@ -121,6 +133,11 @@ cp "$4" "$MCUI_TEST_ARCHIVE"
 	if entries["data/worlds/world/level.dat"] != "world data" || entries["compose.yaml"] == "" {
 		t.Fatalf("archive missing server files: %v", entries)
 	}
+	for name := range entries {
+		if strings.Contains(strings.ToLower(name), "backup") {
+			t.Fatalf("archive contains a backup-prefixed data entry: %s", name)
+		}
+	}
 	if _, err := os.Stat(filepath.Join(root, ".backup-stage", "bedrock-home")); !os.IsNotExist(err) {
 		t.Fatalf("staging directory remains: %v", err)
 	}
@@ -135,6 +152,91 @@ cp "$4" "$MCUI_TEST_ARCHIVE"
 		t.Fatalf("last backup was not persisted: %+v", got)
 	}
 }
+
+func TestBackupArchiveExcludesBackupEntriesFromNamedVolumeStage(t *testing.T) {
+	stage := t.TempDir()
+	data := filepath.Join(stage, "data")
+	for _, dir := range []string{"worlds/world", "backup-pre-1.26.52", "worlds/world/Backups"} {
+		if err := os.MkdirAll(filepath.Join(data, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, content := range map[string]string{
+		"data/worlds/world/level.dat":       "world",
+		"data/backup-pre-1.26.52/old.dat":   "old",
+		"data/worlds/world/Backups/old.dat": "old",
+		"compose.yaml":                      "services: {}",
+	} {
+		if err := os.WriteFile(filepath.Join(stage, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive := filepath.Join(t.TempDir(), "backup.tar.gz")
+	if err := writeBackupArchive(stage, archive); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	entries := map[string]bool{}
+	reader := tar.NewReader(gz)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries[header.Name] = true
+	}
+	if !entries["data/worlds/world/level.dat"] || !entries["compose.yaml"] {
+		t.Fatalf("archive omitted required files: %v", entries)
+	}
+	for name := range entries {
+		if strings.Contains(strings.ToLower(name), "backup") {
+			t.Fatalf("archive contains backup-prefixed data entry: %s", name)
+		}
+	}
+}
+
+func TestCopyBackupTreeSkipsBackupEntries(t *testing.T) {
+	source := t.TempDir()
+	for _, dir := range []string{"worlds/world", "backup-pre-1.26.52", "worlds/world/Backups"} {
+		if err := os.MkdirAll(filepath.Join(source, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{
+		"worlds/world/level.dat",
+		"backup-pre-1.26.52/old.dat",
+		"worlds/world/Backups/old.dat",
+	} {
+		if err := os.WriteFile(filepath.Join(source, name), []byte(name), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination := filepath.Join(t.TempDir(), "data")
+	if err := copyBackupTree(source, destination); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "worlds/world/level.dat")); err != nil {
+		t.Fatalf("world missing from staged data: %v", err)
+	}
+	for _, name := range []string{"backup-pre-1.26.52", "worlds/world/Backups"} {
+		if _, err := os.Stat(filepath.Join(destination, name)); !os.IsNotExist(err) {
+			t.Fatalf("backup entry was staged: %s: %v", name, err)
+		}
+	}
+}
+
 func TestBackupRequiresCredentials(t *testing.T) {
 	t.Setenv("MCUI_BACKUP_DIR", t.TempDir())
 	a := &API{Root: t.TempDir()}

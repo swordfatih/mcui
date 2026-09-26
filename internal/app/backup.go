@@ -361,11 +361,17 @@ func writeBackupArchive(source, destination string) (err error) {
 		if path == source {
 			return nil
 		}
-		info, err := entry.Info()
+		rel, err := filepath.Rel(source, path)
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(source, path)
+		if strings.HasPrefix(rel, "data"+string(os.PathSeparator)) && isBackupName(entry.Name()) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, err := entry.Info()
 		if err != nil {
 			return err
 		}

@@ -6,10 +6,15 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
-// copyBackupTree stages the whole stopped server data directory without
+func isBackupName(name string) bool {
+	return strings.HasPrefix(strings.ToLower(name), "backup")
+}
+
+// copyBackupTree stages server data without backup-prefixed entries or
 // following symbolic links. File modes and modification times are preserved.
 func copyBackupTree(src, dst string) error {
 	type directory struct {
@@ -21,6 +26,12 @@ func copyBackupTree(src, dst string) error {
 	err := filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if path != src && isBackupName(entry.Name()) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {
