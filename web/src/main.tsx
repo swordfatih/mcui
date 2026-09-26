@@ -95,7 +95,7 @@ function SignOutButton() {
 
   async function signOut() {
     await api.post('/auth/logout')
-    qc.clear()
+    qc.removeQueries({ predicate: query => query.queryKey[0] !== 'session' })
     qc.setQueryData(['session'], { authenticated: false, enabled: true })
   }
 
