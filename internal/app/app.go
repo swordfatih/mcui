@@ -17,16 +17,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
 type Server struct {
-	Name    string `json:"name"`
-	Edition string `json:"edition"`
-	Port    int    `json:"port,omitempty"`
-	Status  string `json:"status"`
+	Name     string `json:"name"`
+	Edition  string `json:"edition"`
+	Port     int    `json:"port,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	Host     string `json:"host,omitempty"`
+	Status   string `json:"status"`
 }
 type CreateRequest struct {
 	Name       string `json:"name"`
@@ -59,6 +62,13 @@ func projectName(name string) string {
 type composeService struct {
 	Image   string          `json:"image"`
 	Volumes []composeVolume `json:"volumes"`
+	Ports   []composePort   `json:"ports"`
+}
+
+type composePort struct {
+	Published string `json:"published"`
+	Target    int    `json:"target"`
+	Protocol  string `json:"protocol"`
 }
 
 type composeVolume struct {
@@ -137,7 +147,14 @@ func minecraftServiceFromConfig(name string, config composeConfig) (Server, stri
 			return Server{}, "", errors.New("multiple Minecraft services")
 		}
 		serviceName = service
-		server = Server{Name: name, Edition: edition}
+		server = Server{Name: name, Edition: edition, Host: os.Getenv("MCUI_PUBLIC_HOST")}
+		for _, port := range settings.Ports {
+			if (edition == "bedrock" && port.Target == 19132 && port.Protocol == "udp") || (edition == "java" && port.Target == 25565 && (port.Protocol == "tcp" || port.Protocol == "")) {
+				server.Port, _ = strconv.Atoi(port.Published)
+				server.Protocol = port.Protocol
+				break
+			}
+		}
 	}
 	if serviceName == "" {
 		return Server{}, "", errors.New("no Minecraft service")
@@ -189,6 +206,7 @@ func Serve(addr, root string) error {
 	mux.HandleFunc("/api/servers", a.servers)
 	mux.HandleFunc("/api/backups/config", a.backupConfigHandler)
 	mux.HandleFunc("/api/servers/", a.action)
+	mux.HandleFunc("/api/server-details/", a.serverDetails)
 	mux.Handle("/", http.FileServer(http.Dir("web/dist")))
 	log.Printf("mcui listening on %s; servers in %s", addr, root)
 	return http.ListenAndServe(addr, newSessionAuth(mux))

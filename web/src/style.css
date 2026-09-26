@@ -642,6 +642,30 @@ footer span {
   margin: 0;
 }
 
+.dashboard { padding: 40px 0 70px; }
+.back-button, .detail-tabs button, .env-row button, .env-add button, .address-panel button { background: #2c402c; color: #d6edc4; border: 1px solid #5b7356; border-radius: 8px; padding: 9px 13px; }
+.dashboard-heading { margin: 26px 0; }
+.dashboard-heading h1 { margin-bottom: 4px; }
+.address-panel { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 20px; border: 1px solid #405a42; border-radius: 14px; background: #263729; }
+.address-panel p { font: 700 22px 'Space Grotesk'; margin: 7px 0 0; overflow-wrap: anywhere; }
+.address-panel small { color: #a8bea5; }
+.detail-tabs { display: flex; gap: 8px; margin: 22px 0 15px; flex-wrap: wrap; }
+.detail-tabs button.selected { background: #b7e98e; color: #172417; }
+.detail-panel { max-width: 850px; }
+.detail-panel .muted { margin: 9px 0 22px; font-size: 14px; }
+.env-list { display: grid; gap: 12px; margin-top: 22px; }
+.env-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+.env-row button { margin-bottom: 1px; }
+.env-add { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 23px; }
+.env-add select, .env-add input, .detail-panel textarea { background: #101a13; border: 1px solid #435446; border-radius: 8px; color: #f2f6f0; padding: 11px 12px; font: inherit; }
+.env-add input { flex: 1; min-width: 190px; }
+.detail-panel textarea { width: 100%; min-height: 520px; resize: vertical; font: 13px/1.5 monospace; }
+.save-button { margin-top: 22px; min-width: 150px; justify-content: center; }
+.server-logs { background: #101a13; padding: 18px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 650px; overflow: auto; color: #dce8d6; font-size: 12px; }
+.server-address { display: flex; gap: 8px; margin: 13px 0 0 54px; }
+.server-address input { flex: 1; min-width: 0; background: #101a13; color: #dce8d6; border: 1px solid #435446; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 12px; }
+@media(max-width:520px) { .server-address { margin-left: 0; } .address-panel { align-items: flex-start; flex-direction: column; } }
+
 @media(max-width:520px) {
   .login-card {
     padding: 30px 24px;

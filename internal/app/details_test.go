@@ -1,0 +1,78 @@
+package app
+
+import (
+	"encoding/json"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestServerDetailsSettingsPreserveCompose(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "world")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "compose.yaml")
+	original := "# server settings\nservices:\n  mc:\n    image: itzg/minecraft-bedrock-server:latest\n    environment:\n      EULA: 'TRUE'\n      SERVER_NAME: Old\n    ports:\n      - '19132:19132/udp'\n    volumes:\n      - ./world-data:/data\n    restart: unless-stopped\n"
+	if err := os.WriteFile(file, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\necho '{\"services\":{\"mc\":{\"image\":\"itzg/minecraft-bedrock-server:latest\",\"ports\":[{\"published\":\"19132\",\"target\":19132,\"protocol\":\"udp\"}]}}}'\n"
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("MCUI_PUBLIC_HOST", "mc.example.com")
+	a := &API{Root: root}
+	server, _, err := a.minecraftService("world")
+	if err != nil || server.Port != 19132 || server.Host != "mc.example.com" {
+		t.Fatalf("server address: %+v, %v", server, err)
+	}
+	get := httptest.NewRecorder()
+	a.serverDetails(get, httptest.NewRequest("GET", "/api/server-details/world/settings", nil))
+	if get.Code != 200 {
+		t.Fatalf("get settings: %d %s", get.Code, get.Body.String())
+	}
+	var settings serverSettings
+	if err := json.Unmarshal(get.Body.Bytes(), &settings); err != nil {
+		t.Fatal(err)
+	}
+	settings.Environment["SERVER_NAME"] = "New"
+	settings.Environment["DIFFICULTY"] = "hard"
+	body, _ := json.Marshal(settings)
+	put := httptest.NewRecorder()
+	a.serverDetails(put, httptest.NewRequest("PUT", "/api/server-details/world/settings", strings.NewReader(string(body))))
+	if put.Code != 200 {
+		t.Fatalf("save settings: %d %s", put.Code, put.Body.String())
+	}
+	result, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"# server settings", "SERVER_NAME: New", "DIFFICULTY: hard", "19132:19132/udp", "./world-data:/data", "restart: unless-stopped"} {
+		if !strings.Contains(string(result), expected) {
+			t.Fatalf("missing %q in %s", expected, result)
+		}
+	}
+	stale := httptest.NewRecorder()
+	a.serverDetails(stale, httptest.NewRequest("PUT", "/api/server-details/world/settings", strings.NewReader(string(body))))
+	if stale.Code != 409 {
+		t.Fatalf("stale revision accepted: %d", stale.Code)
+	}
+	invalid := httptest.NewRecorder()
+	var compose struct {
+		YAML     string `json:"yaml"`
+		Revision string `json:"revision"`
+	}
+	compose.YAML = "services: ["
+	compose.Revision = revision(result)
+	badBody, _ := json.Marshal(compose)
+	a.serverDetails(invalid, httptest.NewRequest("PUT", "/api/server-details/world/compose", strings.NewReader(string(badBody))))
+	if invalid.Code != 400 {
+		t.Fatalf("invalid YAML accepted: %d", invalid.Code)
+	}
+}

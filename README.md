@@ -36,6 +36,8 @@ docker compose up --build -d
 
 Open `https://<DOMAIN>` and sign in with `MCUI_HTTP_PASSWORD`. MCUI uses a 12-hour session cookie; signing out ends that session. The Docker Compose deployment requires a password. A native run enables the sign-in page when `MCUI_HTTP_PASSWORD` is set. Use HTTPS to protect credentials and sessions. The dashboard container needs the Docker socket to manage the server projects. Restrict access to the dashboard and protect the Docker socket.
 
+Each server card shows a copyable `DOMAIN:PORT` address, using its published game port from Docker Compose. The Docker deployment passes `DOMAIN` as `MCUI_PUBLIC_HOST`; native runs can set `MCUI_PUBLIC_HOST` explicitly. Open a server dashboard to edit its itzg image and environment variables, edit the full Compose YAML, or see the latest 200 Docker Compose log lines. Compose edits are validated before saving and take effect after the server is restarted. The settings form supports common variables and any additional itzg environment variable; advanced YAML editing covers other Compose options. Server data editing and RCON are planned for later.
+
 ## Google Drive backups
 
 MCUI uploads a standard, unencrypted `.tar.gz` archive for each backup to `<remote>:<path>/<server-name>/`. The default is `drive:mcui/<server-name>/`. Each archive contains the Compose file and a `data/` folder. [rclone](https://rclone.org/drive/) handles Google Drive access.
@@ -82,6 +84,9 @@ JSON requests and responses:
 | `GET` | `/api/backups/config` | Backup readiness and schedule |
 | `GET` | `/api/servers/{name}/backup` | Current or last backup status |
 | `POST` | `/api/servers/{name}/backup` | Queue a Google Drive backup |
+| `GET` | `/api/server-details/{name}/logs` | Last 200 Compose log lines |
+| `GET`, `PUT` | `/api/server-details/{name}/settings` | Read or edit image and environment variables |
+| `GET`, `PUT` | `/api/server-details/{name}/compose` | Read or edit validated Compose YAML |
 
 `edition` is `bedrock` or `java`; `worldPath` may be empty. Errors have an `error` string. Status is polled every five seconds and may be `running`, `stopped`, another Docker state, or `unknown` if Docker cannot be queried. Start and stop errors are returned to the UI.
 
