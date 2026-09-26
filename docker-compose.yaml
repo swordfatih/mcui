@@ -1,0 +1,37 @@
+services:
+  mcui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcui
+    expose:
+      - "8080"
+    environment:
+      MCUI_ADDR: 0.0.0.0:8080
+      MCUI_SERVERS_DIR: ${MCUI_SERVERS_DIR:?Set MCUI_SERVERS_DIR to an absolute host path}
+      MCUI_BACKUP_DIR: /backup
+      MCUI_BACKUP_REMOTE: ${MCUI_BACKUP_REMOTE:-drive}
+      MCUI_BACKUP_PATH: ${MCUI_BACKUP_PATH:-mcui}
+      MCUI_BACKUP_INTERVAL: ${MCUI_BACKUP_INTERVAL:-24h}
+      VIRTUAL_HOST: ${DOMAIN:?Set DOMAIN in .env}
+      VIRTUAL_PORT: 8080
+      LETSENCRYPT_HOST: ${DOMAIN:?Set DOMAIN in .env}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:?Set LETSENCRYPT_EMAIL in .env}
+    volumes:
+      # The path must be identical on the host and in MCUI: nested Compose
+      # projects bind their data folders using this absolute path.
+      - ${MCUI_SERVERS_DIR:?Set MCUI_SERVERS_DIR to an absolute host path}:${MCUI_SERVERS_DIR:?Set MCUI_SERVERS_DIR to an absolute host path}
+      - ./backup:/backup
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - nginx-proxy
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "2"
+
+networks:
+  nginx-proxy:
+    external: true

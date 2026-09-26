@@ -1,0 +1,8 @@
+web/node_modules/
+web/dist/
+servers/*/
+!servers/.gitkeep
+.env
+web/tsconfig.tsbuildinfo
+backup/
+go1.26.2.linux-amd64.tar.gz
