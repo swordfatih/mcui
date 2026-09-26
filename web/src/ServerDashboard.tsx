@@ -3,37 +3,197 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import Infrastructure from './Infrastructure'
 
-type Server = { name: string; edition: 'bedrock' | 'java'; status: string; port?: number; host?: string; protocol?: string }
-type BackupState = { state: 'idle' | 'queued' | 'capturing' | 'uploading' | 'complete' | 'failed'; completedAt?: string; snapshotId?: string; error?: string }
-type PlayerStatus = { available: boolean; online?: number; max?: number; version?: string; players?: string[]; reason?: string }
+type Server = {
+  name: string
+  edition: 'bedrock' | 'java'
+  status: string
+  port?: number
+  host?: string
+  protocol?: string
+}
+type BackupState = {
+  state: 'idle' | 'queued' | 'capturing' | 'uploading' | 'complete' | 'failed'
+  completedAt?: string
+  snapshotId?: string
+  error?: string
+}
+type PlayerStatus = {
+  available: boolean
+  online?: number
+  max?: number
+  version?: string
+  players?: string[]
+  reason?: string
+}
+type Tab = 'overview' | 'infrastructure' | 'logs'
+
 const api = axios.create({ baseURL: '/api' })
-const message = (error: unknown) => axios.isAxiosError(error) ? (error.response?.data?.error ?? error.message) : String(error)
+const errorMessage = (error: unknown) => axios.isAxiosError(error)
+  ? (error.response?.data?.error ?? error.message)
+  : String(error)
 
+function CopyIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="8" y="8" width="12" height="12" rx="2" />
+    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+  </svg>
+}
 
-function CopyIcon() { return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg> }
-
-export default function ServerDashboard({ server, onBack, backupConfigured }: { server: Server; onBack: () => void; backupConfigured: boolean }) {
+export default function ServerDashboard({ server, onBack, backupConfigured }: {
+  server: Server
+  onBack: () => void
+  backupConfigured: boolean
+}) {
   const qc = useQueryClient()
   const key = encodeURIComponent(server.name)
-  const [tab, setTab] = useState<'overview' | 'infrastructure' | 'logs'>('overview')
+  const [tab, setTab] = useState<Tab>('overview')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
-  const host = server.host || window.location.hostname
-  const address = server.port ? `${host}:${server.port}` : ''
-  const logs = useQuery({ queryKey: ['logs', key], queryFn: async () => (await api.get<{ logs: string }>(`/server-details/${key}/logs`)).data, enabled: tab === 'logs' || tab === 'overview', refetchInterval: tab === 'logs' || tab === 'overview' ? 5000 : false })
-  const backup = useQuery({ queryKey: ['backup', server.name], queryFn: async () => (await api.get<BackupState>(`/servers/${key}/backup`)).data, refetchInterval: 5000 })
-  const players = useQuery({ queryKey: ['players', key], queryFn: async () => (await api.get<PlayerStatus>(`/server-details/${key}/players`)).data, enabled: tab === 'overview', refetchInterval: tab === 'overview' ? 15000 : false })
+  const address = server.port ? `${server.host || window.location.hostname}:${server.port}` : ''
+
+  const logs = useQuery({
+    queryKey: ['logs', key],
+    queryFn: async () => (await api.get<{ logs: string }>(`/server-details/${key}/logs`)).data,
+    enabled: tab === 'logs' || tab === 'overview',
+    refetchInterval: tab === 'logs' || tab === 'overview' ? 5000 : false,
+  })
+  const backup = useQuery({
+    queryKey: ['backup', server.name],
+    queryFn: async () => (await api.get<BackupState>(`/servers/${key}/backup`)).data,
+    refetchInterval: 5000,
+  })
+  const players = useQuery({
+    queryKey: ['players', key],
+    queryFn: async () => (await api.get<PlayerStatus>(`/server-details/${key}/players`)).data,
+    enabled: tab === 'overview',
+    refetchInterval: tab === 'overview' ? 15000 : false,
+  })
   const backupBusy = backup.data?.state === 'queued' || backup.data?.state === 'capturing' || backup.data?.state === 'uploading'
-  const action = useMutation({ mutationFn: async (verb: 'start' | 'stop') => (await api.post(`/servers/${key}/${verb}`)).data, onSuccess: async () => { setError(''); setNotice('Server action completed.'); await qc.invalidateQueries({ queryKey: ['servers'] }) }, onError: e => setError(message(e)) })
-  const createBackup = useMutation({ mutationFn: async () => (await api.post(`/servers/${key}/backup`)).data, onSuccess: async () => { setError(''); setNotice('Backup queued.'); await qc.invalidateQueries({ queryKey: ['backup', server.name] }) }, onError: e => setError(message(e)) })
+  const action = useMutation({
+    mutationFn: async (verb: 'start' | 'stop') => (await api.post(`/servers/${key}/${verb}`)).data,
+    onSuccess: async () => {
+      setError('')
+      setNotice('Server action completed.')
+      await qc.invalidateQueries({ queryKey: ['servers'] })
+    },
+    onError: err => setError(errorMessage(err)),
+  })
+  const createBackup = useMutation({
+    mutationFn: async () => (await api.post(`/servers/${key}/backup`)).data,
+    onSuccess: async () => {
+      setError('')
+      setNotice('Backup queued.')
+      await qc.invalidateQueries({ queryKey: ['backup', server.name] })
+    },
+    onError: err => setError(errorMessage(err)),
+  })
+
+  async function copyAddress() {
+    try {
+      await navigator.clipboard.writeText(address)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setError('Could not copy the address.')
+    }
+  }
+
+  const backupLabel = backupBusy ? 'In progress'
+    : backup.data?.state === 'complete' ? 'Complete'
+      : backup.data?.state === 'failed' ? 'Failed' : 'No backup yet'
+  const backupDetail = backup.data?.state === 'complete' && backup.data.completedAt
+    ? new Date(backup.data.completedAt).toLocaleString()
+    : backup.data?.error || (backupConfigured ? 'Create a backup whenever you need one.' : 'Configure Google Drive first.')
+  const recentLogs = logs.data?.logs?.trim().split('\n').slice(-12).join('\n') || 'No log output yet.'
 
   return <main className="dashboard">
     <button className="back-button" onClick={onBack}>← All servers</button>
-    <section className="dashboard-hero"><div className="dashboard-heading"><div className="dashboard-emblem">{server.edition === 'bedrock' ? 'B' : 'J'}</div><div><p className="kicker">{server.edition === 'bedrock' ? 'BEDROCK SERVER' : 'JAVA SERVER'}</p><h1>{server.name}</h1></div><span className={`status-pill ${server.status}`}><i/>{server.status}</span></div><p className="muted">Manage your world, connect players, and keep it backed up.</p><div className="dashboard-actions"><button className="primary" disabled={action.isPending || backup.data?.state === 'capturing'} onClick={() => action.mutate(server.status === 'running' ? 'stop' : 'start')}>{action.isPending ? 'Working…' : server.status === 'running' ? 'Stop server' : 'Start server'}</button><button className="secondary-action" disabled={!backupConfigured || backupBusy || createBackup.isPending} onClick={() => createBackup.mutate()}>{backupBusy ? 'Backup in progress…' : 'Back up now'}</button></div></section>
-    {notice && <p className="notice" role="status">{notice}</p>}{error && <p className="error" role="alert">{error}</p>}
-    {tab === 'overview' && <div className="overview-grid"><section className="panel overview-card"><p className="kicker">CONNECT</p><h2>Join this world</h2><p className="muted">Share this address with players.</p><div className="copy-field"><span role="textbox" aria-label="Server address">{address || 'No published game port'}</span><button type="button" disabled={!address} onClick={async () => { try { await navigator.clipboard.writeText(address); setCopied(true); window.setTimeout(() => setCopied(false), 2000) } catch { setError('Could not copy the address.') } }} aria-label={copied ? 'Address copied' : 'Copy server address'} title={copied ? 'Copied' : 'Copy address'}><CopyIcon/></button></div><small className="copy-hint" role="status">{copied ? 'Copied to clipboard' : `${server.edition === 'bedrock' ? 'Bedrock · UDP' : 'Java · TCP'}${server.port ? ` · Port ${server.port}` : ''}`}</small></section><section className="panel overview-card"><p className="kicker">SAFEKEEPING</p><h2>Google Drive backup</h2><p className="muted">Compressed archives stored in Drive.</p><div className="backup-summary"><span className={`status-pill ${backup.data?.state === 'complete' ? 'running' : ''}`}><i/>{backupBusy ? 'In progress' : backup.data?.state === 'complete' ? 'Complete' : backup.data?.state === 'failed' ? 'Failed' : 'No backup yet'}</span><small>{backup.data?.state === 'complete' && backup.data.completedAt ? new Date(backup.data.completedAt).toLocaleString() : backup.data?.error || (backupConfigured ? 'Create a backup whenever you need one.' : 'Configure Google Drive first.')}</small></div>{backup.data?.snapshotId && <code className="archive-name">{backup.data.snapshotId}</code>}</section><section className="panel overview-card players-card"><p className="kicker">COMMUNITY</p><h2>Players online</h2>{players.isLoading ? <p className="muted">Checking server…</p> : players.isError ? <p className="muted">Player status is unavailable.</p> : players.data?.available ? <><div className="player-count"><strong>{players.data.online}</strong><span>/ {players.data.max} slots</span></div><p className="player-version">{players.data.version ? `Minecraft ${players.data.version}` : 'Server responding'} · updates every 15s</p>{players.data.players && players.data.players.length > 0 ? <div className="player-list">{players.data.players.map(name => <span key={name}>{name}</span>)}</div> : <p className="player-note">{players.data.online ? 'Names are not provided by this server status response.' : 'No one is playing right now.'}</p>}</> : <p className="muted">{players.data?.reason || (server.status === 'running' ? 'Waiting for a player status response.' : 'Start the server to see players.')}</p>}</section><section className="panel overview-card logs-card"><div className="overview-card-heading"><div><p className="kicker">ACTIVITY</p><h2>Recent output</h2></div><button onClick={() => setTab('logs')}>View logs →</button></div>{logs.isError ? <p className="error">{message(logs.error)}</p> : <pre className="server-logs">{logs.data?.logs?.trim().split('\n').slice(-12).join('\n') || 'No log output yet.'}</pre>}</section></div>}
-    <Infrastructure server={server} active={tab === 'infrastructure'}/>
-    {tab === 'logs' && <section className="panel detail-panel"><h2>Recent logs</h2><p className="muted">Last 200 lines. Refreshes every five seconds.</p>{logs.isError ? <p className="error">{message(logs.error)}</p> : <pre className="server-logs">{logs.data?.logs ?? 'Loading…'}</pre>}</section>}
+
+    <section className="dashboard-hero">
+      <div className="dashboard-heading">
+        <div className="dashboard-emblem">{server.edition === 'bedrock' ? 'B' : 'J'}</div>
+        <div>
+          <p className="kicker">{server.edition === 'bedrock' ? 'BEDROCK SERVER' : 'JAVA SERVER'}</p>
+          <h1>{server.name}</h1>
+        </div>
+        <span className={`status-pill ${server.status}`}><i />{server.status}</span>
+      </div>
+      <p className="muted">Manage your world, connect players, and keep it backed up.</p>
+      <div className="dashboard-actions">
+        <button className="primary" disabled={action.isPending || backup.data?.state === 'capturing'} onClick={() => action.mutate(server.status === 'running' ? 'stop' : 'start')}>
+          {action.isPending ? 'Working…' : server.status === 'running' ? 'Stop server' : 'Start server'}
+        </button>
+        <button className="secondary-action" disabled={!backupConfigured || backupBusy || createBackup.isPending} onClick={() => createBackup.mutate()}>
+          {backupBusy ? 'Backup in progress…' : 'Back up now'}
+        </button>
+      </div>
+    </section>
+
+    <nav className="detail-tabs" aria-label="Server sections">
+      {(['overview', 'infrastructure', 'logs'] as const).map(section => <button
+        key={section}
+        type="button"
+        className={tab === section ? 'selected' : ''}
+        aria-current={tab === section ? 'page' : undefined}
+        onClick={() => setTab(section)}
+      >{section[0].toUpperCase() + section.slice(1)}</button>)}
+    </nav>
+
+    {notice && <p className="notice" role="status">{notice}</p>}
+    {error && <p className="error" role="alert">{error}</p>}
+
+    {tab === 'overview' && <div className="overview-grid">
+      <section className="panel overview-card">
+        <p className="kicker">CONNECT</p>
+        <h2>Join this world</h2>
+        <p className="muted">Share this address with players.</p>
+        <div className="copy-field">
+          <span role="textbox" aria-label="Server address">{address || 'No published game port'}</span>
+          <button type="button" disabled={!address} onClick={copyAddress} aria-label={copied ? 'Address copied' : 'Copy server address'} title={copied ? 'Copied' : 'Copy address'}><CopyIcon /></button>
+        </div>
+        <small className="copy-hint" role="status">{copied ? 'Copied to clipboard' : `${server.edition === 'bedrock' ? 'Bedrock · UDP' : 'Java · TCP'}${server.port ? ` · Port ${server.port}` : ''}`}</small>
+      </section>
+
+      <section className="panel overview-card">
+        <p className="kicker">SAFEKEEPING</p>
+        <h2>Google Drive backup</h2>
+        <p className="muted">Compressed archives stored in Drive.</p>
+        <div className="backup-summary">
+          <span className={`status-pill ${backup.data?.state === 'complete' ? 'running' : ''}`}><i />{backupLabel}</span>
+          <small>{backupDetail}</small>
+        </div>
+        {backup.data?.snapshotId && <code className="archive-name">{backup.data.snapshotId}</code>}
+      </section>
+
+      <section className="panel overview-card players-card">
+        <p className="kicker">COMMUNITY</p>
+        <h2>Players online</h2>
+        {players.isLoading ? <p className="muted">Checking server…</p>
+          : players.isError ? <p className="muted">Player status is unavailable.</p>
+            : players.data?.available ? <>
+              <div className="player-count"><strong>{players.data.online}</strong><span>/ {players.data.max} slots</span></div>
+              <p className="player-version">{players.data.version ? `Minecraft ${players.data.version}` : 'Server responding'} · updates every 15s</p>
+              {players.data.players?.length ? <div className="player-list">{players.data.players.map(name => <span key={name}>{name}</span>)}</div>
+                : <p className="player-note">{players.data.online ? 'Names are not provided by this server status response.' : 'No one is playing right now.'}</p>}
+            </> : <p className="muted">{players.data?.reason || (server.status === 'running' ? 'Waiting for a player status response.' : 'Start the server to see players.')}</p>}
+      </section>
+
+      <section className="panel overview-card logs-card">
+        <div className="overview-card-heading">
+          <div><p className="kicker">ACTIVITY</p><h2>Recent output</h2></div>
+          <button onClick={() => setTab('logs')}>View logs →</button>
+        </div>
+        {logs.isError ? <p className="error">{errorMessage(logs.error)}</p> : <pre className="server-logs">{recentLogs}</pre>}
+      </section>
+    </div>}
+
+    <Infrastructure server={server} active={tab === 'infrastructure'} />
+
+    {tab === 'logs' && <section className="panel detail-panel">
+      <h2>Recent logs</h2>
+      <p className="muted">Last 200 lines. Refreshes every five seconds.</p>
+      {logs.isError ? <p className="error">{errorMessage(logs.error)}</p> : <pre className="server-logs">{logs.data?.logs ?? 'Loading…'}</pre>}
+    </section>}
   </main>
 }

@@ -104,7 +104,7 @@ func TestPlayerStatusUsesExplicitContainerName(t *testing.T) {
 	script := `#!/bin/sh
 case "$*" in
   *" config --format json") echo '{"services":{"mc":{"image":"itzg/minecraft-bedrock-server","container_name":"bedrock","ports":[{"published":"19132","target":19132,"protocol":"udp"}]}}}' ;;
-  "exec bedrock mc-monitor status-bedrock --port 19132") echo '127.0.0.1:19132 : version=1.26.52 online=1 max=10' ;;
+  "exec bedrock mc-monitor status-bedrock --host 127.0.0.1 --port 19132") echo '127.0.0.1:19132 : version=1.26.52 online=1 max=10' ;;
   "stats --no-stream --format {{json .}} bedrock") echo '{"CPUPerc":"2.10%","MemUsage":"512MiB / 2GiB","MemPerc":"25.00%","NetIO":"1MB / 2MB","BlockIO":"3MB / 4MB","PIDs":"18"}' ;;
   "exec bedrock du -sk /data") echo '1048576 /data' ;;
   *) exit 1 ;;

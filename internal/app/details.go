@@ -441,9 +441,9 @@ func (a *API) playerStatus(parent context.Context, name string) (playerStatus, e
 		}
 	}
 	if server.Edition == "bedrock" {
-		command = append(command, "status-bedrock", "--port", strconv.Itoa(port))
+		command = append(command, "status-bedrock", "--host", "127.0.0.1", "--port", strconv.Itoa(port))
 	} else {
-		command = append(command, "status", "--json", "--timeout", "5s", "--port", strconv.Itoa(port))
+		command = append(command, "status", "--json", "--timeout", "5s", "--host", "127.0.0.1", "--port", strconv.Itoa(port))
 	}
 	out, err := exec.CommandContext(ctx, "docker", command...).CombinedOutput()
 	if err != nil {
