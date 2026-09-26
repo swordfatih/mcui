@@ -358,7 +358,7 @@ func (a *API) backupConfigHandler(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]any{"configured": a.backup.ready(), "interval": a.backup.config.Interval.String(), "destination": "Google Drive"})
 }
 func (a *API) backupAction(w http.ResponseWriter, r *http.Request, name string) {
-	if !validName.MatchString(name) {
+	if !safeFolderName(name) {
 		bad(w, 404, "Not found")
 		return
 	}
@@ -403,7 +403,7 @@ func (b *BackupManager) schedule(ctx context.Context) {
 				continue
 			}
 			for _, entry := range entries {
-				if entry.IsDir() && validName.MatchString(entry.Name()) {
+				if entry.IsDir() && safeFolderName(entry.Name()) {
 					if _, err := b.api.readServer(entry.Name()); err == nil {
 						_ = b.start(entry.Name())
 					}

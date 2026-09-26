@@ -50,7 +50,7 @@ Click **Back up now** on a server for an on-demand snapshot. `MCUI_BACKUP_INTERV
 
 ## Create a server
 
-1. Pick Bedrock (default) or Java, a lowercase name, and an unused host port. Defaults are `19132/udp` for Bedrock and `25565/tcp` for Java.
+1. Pick Bedrock (default) or Java, a server folder name, and an unused host port. Defaults are `19132/udp` for Bedrock and `25565/tcp` for Java.
 2. Optionally supply an absolute path on the **host** to an existing world directory, `.zip`, `.tar.gz`, or `.tgz` archive. If MCUI runs in Docker, the path must also be mounted into the MCUI container; the `servers` mount is already available. For imports elsewhere, add a read-only bind mount to the root `docker-compose.yaml`.
 3. Confirm the Minecraft EULA, create the server, then click Start. The first start may take a while because it downloads the image and Minecraft server files.
 

@@ -36,7 +36,7 @@ func TestCreateBedrockAndDiscover(t *testing.T) {
 
 func TestDiscoverExistingComposeWithoutPort(t *testing.T) {
 	a := API{Root: t.TempDir()}
-	dir := filepath.Join(a.Root, "chronicles")
+	dir := filepath.Join(a.Root, "bedrock_ana")
 	if err := os.Mkdir(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -44,12 +44,17 @@ func TestDiscoverExistingComposeWithoutPort(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(compose), 0644); err != nil {
 		t.Fatal(err)
 	}
-	server, service, err := a.minecraftService("chronicles")
+	server, service, err := a.minecraftService("bedrock_ana")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if server.Edition != "java" || service != "minecraft" || server.Port != 0 {
 		t.Fatalf("unexpected discovery: %+v, %s", server, service)
+	}
+	response := httptest.NewRecorder()
+	a.servers(response, httptest.NewRequest("GET", "/api/servers", nil))
+	if response.Code != 200 || !strings.Contains(response.Body.String(), `"name":"bedrock_ana"`) {
+		t.Fatalf("server not listed: %d %s", response.Code, response.Body.String())
 	}
 }
 func TestRejectZipTraversal(t *testing.T) {
@@ -83,7 +88,7 @@ func TestRejectZipTraversal(t *testing.T) {
 }
 func TestCreateValidation(t *testing.T) {
 	a := API{Root: t.TempDir()}
-	cases := []CreateRequest{{Name: "Bad Name", Edition: "bedrock", Port: 19132, AcceptEULA: true}, {Name: "test", Edition: "bedrock", Port: 0, AcceptEULA: true}, {Name: "test", Edition: "bedrock", Port: 19132, WorldPath: "relative.zip", AcceptEULA: true}, {Name: "test", Edition: "bedrock", Port: 19132}}
+	cases := []CreateRequest{{Name: "../escape", Edition: "bedrock", Port: 19132, AcceptEULA: true}, {Name: "test", Edition: "bedrock", Port: 0, AcceptEULA: true}, {Name: "test", Edition: "bedrock", Port: 19132, WorldPath: "relative.zip", AcceptEULA: true}, {Name: "test", Edition: "bedrock", Port: 19132}}
 	for _, req := range cases {
 		if err := a.create(req); err == nil {
 			t.Fatalf("accepted invalid request: %+v", req)

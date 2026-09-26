@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +42,19 @@ type API struct {
 }
 
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
+var validProjectName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+func safeFolderName(name string) bool {
+	return name != "" && name != "." && name != ".." && filepath.Base(name) == name && !strings.Contains(name, "\\")
+}
+
+func projectName(name string) string {
+	if validProjectName.MatchString(name) {
+		return "mcui-" + name
+	}
+	hash := sha256.Sum256([]byte(name))
+	return fmt.Sprintf("mcui-%x", hash[:8])
+}
 
 type composeService struct {
 	Image string `json:"image"`
@@ -51,6 +65,9 @@ type composeConfig struct {
 }
 
 func (a *API) composeFile(name string) (string, error) {
+	if !safeFolderName(name) {
+		return "", os.ErrInvalid
+	}
 	for _, filename := range []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"} {
 		path := filepath.Join(a.Root, name, filename)
 		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
@@ -65,7 +82,7 @@ func (a *API) composeArgs(name string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []string{"compose", "-p", "mcui-" + name, "-f", file}, nil
+	return []string{"compose", "-p", projectName(name), "-f", file}, nil
 }
 
 func (a *API) minecraftService(name string) (Server, string, error) {
@@ -151,7 +168,7 @@ func (a *API) servers(w http.ResponseWriter, r *http.Request) {
 		}
 		out := []Server{}
 		for _, e := range entries {
-			if !e.IsDir() || !validName.MatchString(e.Name()) {
+			if !e.IsDir() || !safeFolderName(e.Name()) {
 				continue
 			}
 			s, err := a.readServer(e.Name())
@@ -189,7 +206,7 @@ func (a *API) action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/servers/"), "/")
-	if len(parts) != 2 || !validName.MatchString(parts[0]) || (parts[1] != "start" && parts[1] != "stop" && parts[1] != "backup") {
+	if len(parts) != 2 || !safeFolderName(parts[0]) || (parts[1] != "start" && parts[1] != "stop" && parts[1] != "backup") {
 		bad(w, 404, "Not found")
 		return
 	}
@@ -269,8 +286,8 @@ func (a *API) readServer(name string) (Server, error) {
 func (a *API) create(req CreateRequest) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !validName.MatchString(req.Name) {
-		return errors.New("Name must use lowercase letters, numbers, and hyphens (1–40 characters)")
+	if !safeFolderName(req.Name) {
+		return errors.New("Name must be a single folder name")
 	}
 	if req.Edition != "java" && req.Edition != "bedrock" {
 		return errors.New("Edition must be java or bedrock")
