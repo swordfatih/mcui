@@ -1,13 +1,17 @@
 package app
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -344,15 +348,54 @@ func (a *API) sendServerCommand(parent context.Context, name, command string) (s
 		if strings.TrimSpace(string(stdin)) != "true" {
 			return "", errBedrockStdinClosed
 		}
-		args = append(args, "send-command", command)
-	} else {
-		args = append(args, "rcon-cli", "--host", "127.0.0.1", command)
+		return "", attachBedrockCommand(ctx, id, command)
 	}
+	args = append(args, "rcon-cli", "--host", "127.0.0.1", command)
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("Send command: %s", cleanError(out))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// attachBedrockCommand writes directly to the container's open stdin through
+// Docker's attach API. The image's send-command script needs /proc access,
+// which can be denied even when the Bedrock server is running.
+func attachBedrockCommand(ctx context.Context, id, command string) error {
+	socket := "/var/run/docker.sock"
+	if host := os.Getenv("DOCKER_HOST"); host != "" {
+		if !strings.HasPrefix(host, "unix://") {
+			return errors.New("Bedrock console requires a local Docker socket")
+		}
+		socket = strings.TrimPrefix(host, "unix://")
+	}
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
+	if err != nil {
+		return fmt.Errorf("Connect to Docker for Bedrock console: %w", err)
+	}
+	defer conn.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetDeadline(deadline); err != nil {
+			return err
+		}
+	}
+	path := "/containers/" + url.PathEscape(id) + "/attach?stream=1&stdin=1&stdout=0&stderr=0"
+	request := "POST " + path + " HTTP/1.1\r\nHost: docker\r\nConnection: Upgrade\r\nUpgrade: tcp\r\nContent-Length: 0\r\n\r\n"
+	if _, err := io.WriteString(conn, request); err != nil {
+		return fmt.Errorf("Attach to Bedrock console: %w", err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		return fmt.Errorf("Attach to Bedrock console: %w", err)
+	}
+	if response.StatusCode != http.StatusSwitchingProtocols && response.StatusCode != http.StatusOK {
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
+		return fmt.Errorf("Attach to Bedrock console: Docker returned %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
+	}
+	if _, err := io.WriteString(conn, command+"\n"); err != nil {
+		return fmt.Errorf("Write Bedrock command: %w", err)
+	}
+	return nil
 }
 
 type playerStatus struct {

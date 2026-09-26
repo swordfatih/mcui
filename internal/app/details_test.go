@@ -1,8 +1,12 @@
 package app
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -147,10 +151,8 @@ func TestServerCommandUsesEditionConsole(t *testing.T) {
 				t.Fatal(err)
 			}
 			image := "itzg/minecraft-server:latest"
-			tool := "rcon-cli"
 			if edition == "bedrock" {
 				image = "itzg/minecraft-bedrock-server:latest"
-				tool = "send-command"
 			}
 			compose := "services:\n  mc:\n    image: " + image + "\n"
 			if err := os.WriteFile(filepath.Join(serverDir, "compose.yaml"), []byte(compose), 0644); err != nil {
@@ -187,6 +189,46 @@ esac
 			commandFile := filepath.Join(bin, "command")
 			t.Setenv("MCUI_TEST_COMMAND", commandFile)
 			t.Setenv("MCUI_TEST_OPEN_STDIN", "true")
+			var attached chan error
+			if edition == "bedrock" {
+				socket := filepath.Join(bin, "docker.sock")
+				listener, err := net.Listen("unix", socket)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer listener.Close()
+				t.Setenv("DOCKER_HOST", "unix://"+socket)
+				attached = make(chan error, 1)
+				go func() {
+					conn, err := listener.Accept()
+					if err != nil {
+						attached <- err
+						return
+					}
+					defer conn.Close()
+					reader := bufio.NewReader(conn)
+					request, err := http.ReadRequest(reader)
+					if err != nil {
+						attached <- err
+						return
+					}
+					if request.URL.Path != "/containers/custom-server/attach" || request.URL.Query().Get("stdin") != "1" {
+						attached <- fmt.Errorf("unexpected Docker attach request: %s", request.URL)
+						return
+					}
+					if _, err := io.WriteString(conn, "HTTP/1.1 101 UPGRADED\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n"); err != nil {
+						attached <- err
+						return
+					}
+					payload := make([]byte, len("say hello & friends\n"))
+					_, err = io.ReadFull(reader, payload)
+					if err != nil || string(payload) != "say hello & friends\n" {
+						attached <- fmt.Errorf("unexpected Bedrock command: %q, %v", payload, err)
+						return
+					}
+					attached <- nil
+				}()
+			}
 			a := &API{Root: root}
 			body, _ := json.Marshal(map[string]string{"command": "/say hello & friends"})
 			response := httptest.NewRecorder()
@@ -194,12 +236,18 @@ esac
 			if response.Code != http.StatusOK {
 				t.Fatalf("command: %d %s", response.Code, response.Body.String())
 			}
-			got, err := os.ReadFile(commandFile)
-			if err != nil || string(got) != tool+"\nsay hello & friends\n" {
-				t.Fatalf("wrong container command: %q, %v", got, err)
-			}
-			if edition == "java" && !strings.Contains(response.Body.String(), "RCON reply") {
-				t.Fatalf("missing RCON response: %s", response.Body.String())
+			if edition == "bedrock" {
+				if err := <-attached; err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				got, err := os.ReadFile(commandFile)
+				if err != nil || string(got) != "rcon-cli\nsay hello & friends\n" {
+					t.Fatalf("wrong container command: %q, %v", got, err)
+				}
+				if !strings.Contains(response.Body.String(), "RCON reply") {
+					t.Fatalf("missing RCON response: %s", response.Body.String())
+				}
 			}
 			invalid, _ := json.Marshal(map[string]string{"command": "say one\nstop"})
 			response = httptest.NewRecorder()
