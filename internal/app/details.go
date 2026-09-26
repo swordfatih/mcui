@@ -21,9 +21,11 @@ import (
 )
 
 type serverSettings struct {
-	Image       string            `json:"image"`
-	Environment map[string]string `json:"environment"`
-	Revision    string            `json:"revision"`
+	Image           string            `json:"image"`
+	Restart         string            `json:"restart"`
+	StopGracePeriod string            `json:"stopGracePeriod"`
+	Environment     map[string]string `json:"environment"`
+	Revision        string            `json:"revision"`
 }
 
 func yamlValue(node *yaml.Node, key string) *yaml.Node {
@@ -46,6 +48,19 @@ func setYAMLValue(node *yaml.Node, key string, value *yaml.Node) {
 		}
 	}
 	node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
+}
+
+func setOptionalYAMLValue(node *yaml.Node, key, value string) {
+	if value != "" {
+		setYAMLValue(node, key, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value})
+		return
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			node.Content = append(node.Content[:i], node.Content[i+2:]...)
+			return
+		}
+	}
 }
 
 func (a *API) detailFile(name string) (string, []byte, *yaml.Node, *yaml.Node, error) {
@@ -93,6 +108,17 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch action {
+	case "resources", "storage":
+		if r.Method != http.MethodGet {
+			bad(w, 405, "Method not allowed")
+			return
+		}
+		value, err := a.serverResources(r.Context(), name, action)
+		if err != nil {
+			respond(w, 200, map[string]any{"available": false, "reason": err.Error()})
+			return
+		}
+		respond(w, 200, value)
 	case "players":
 		if r.Method != http.MethodGet {
 			bad(w, 405, "Method not allowed")
@@ -162,7 +188,14 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 			if image != nil {
 				value = image.Value
 			}
-			respond(w, 200, serverSettings{Image: value, Environment: env, Revision: revision(content)})
+			restart, grace := "", ""
+			if node := yamlValue(service, "restart"); node != nil {
+				restart = node.Value
+			}
+			if node := yamlValue(service, "stop_grace_period"); node != nil {
+				grace = node.Value
+			}
+			respond(w, 200, serverSettings{Image: value, Restart: restart, StopGracePeriod: grace, Environment: env, Revision: revision(content)})
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -194,7 +227,15 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 				bad(w, 400, "Invalid settings")
 				return
 			}
+			switch req.Restart {
+			case "", "no", "always", "on-failure", "unless-stopped":
+			default:
+				bad(w, 400, "Invalid restart policy")
+				return
+			}
 			setYAMLValue(service, "image", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: req.Image})
+			setOptionalYAMLValue(service, "restart", req.Restart)
+			setOptionalYAMLValue(service, "stop_grace_period", req.StopGracePeriod)
 			env := yamlValue(service, "environment")
 			if env == nil || env.Kind != yaml.MappingNode {
 				env = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
@@ -246,6 +287,86 @@ type playerStatus struct {
 	Max       int      `json:"max"`
 	Version   string   `json:"version,omitempty"`
 	Players   []string `json:"players"`
+}
+
+type resourceStatus struct {
+	Available     bool   `json:"available"`
+	CPU           string `json:"cpu"`
+	Memory        string `json:"memory"`
+	MemoryPercent string `json:"memoryPercent"`
+	Network       string `json:"network"`
+	DiskIO        string `json:"diskIO"`
+	Processes     string `json:"processes"`
+}
+
+func (a *API) serviceContainer(ctx context.Context, name, service string, config composeConfig) (string, error) {
+	if id := config.Services[service].ContainerName; id != "" {
+		return id, nil
+	}
+	args, err := a.composeArgs(name)
+	if err != nil {
+		return "", err
+	}
+	out, err := exec.CommandContext(ctx, "docker", append(args, "ps", "-q", service)...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("find server container: %s", cleanError(out))
+	}
+	id := strings.TrimSpace(string(out))
+	if id == "" {
+		return "", errors.New("Server container is unavailable")
+	}
+	return id, nil
+}
+
+func (a *API) serverResources(parent context.Context, name, kind string) (any, error) {
+	_, service, err := a.minecraftService(name)
+	if err != nil {
+		return nil, err
+	}
+	config, err := a.readComposeConfig(name)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	id, err := a.serviceContainer(ctx, name, service, config)
+	if err != nil {
+		return nil, err
+	}
+	if kind == "storage" {
+		out, err := exec.CommandContext(ctx, "docker", "exec", id, "du", "-sk", "/data").CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("measure /data: %s", cleanError(out))
+		}
+		fields := strings.Fields(string(out))
+		if len(fields) == 0 {
+			return nil, errors.New("Storage measurement is empty")
+		}
+		kilobytes, err := strconv.ParseInt(fields[0], 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"available": true, "bytes": kilobytes * 1024}, nil
+	}
+	out, err := exec.CommandContext(ctx, "docker", "stats", "--no-stream", "--format", "{{json .}}", id).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("Docker stats: %s", cleanError(out))
+	}
+	if len(strings.TrimSpace(string(out))) == 0 {
+		return nil, errors.New("Container has no live resource data")
+	}
+	var data struct {
+		CPU           string `json:"CPUPerc"`
+		Memory        string `json:"MemUsage"`
+		MemoryPercent string `json:"MemPerc"`
+		Network       string `json:"NetIO"`
+		DiskIO        string `json:"BlockIO"`
+		Processes     string `json:"PIDs"`
+	}
+	if err := json.Unmarshal(out, &data); err != nil {
+		return nil, err
+	}
+	return resourceStatus{Available: true, CPU: data.CPU, Memory: data.Memory, MemoryPercent: data.MemoryPercent, Network: data.Network, DiskIO: data.DiskIO, Processes: data.Processes}, nil
 }
 
 var bedrockStatusPattern = regexp.MustCompile(`version=([^\s]+) online=([0-9]+) max=([0-9]+)`)
@@ -304,20 +425,9 @@ func (a *API) playerStatus(parent context.Context, name string) (playerStatus, e
 	if err != nil {
 		return playerStatus{}, err
 	}
-	id := config.Services[service].ContainerName
-	if id == "" {
-		args, argsErr := a.composeArgs(name)
-		if argsErr != nil {
-			return playerStatus{}, argsErr
-		}
-		out, psErr := exec.CommandContext(ctx, "docker", append(args, "ps", "-q", service)...).CombinedOutput()
-		if psErr != nil {
-			return playerStatus{}, fmt.Errorf("find server container: %s", cleanError(out))
-		}
-		id = strings.TrimSpace(string(out))
-	}
-	if id == "" {
-		return playerStatus{}, errors.New("Server container is unavailable")
+	id, err := a.serviceContainer(ctx, name, service, config)
+	if err != nil {
+		return playerStatus{}, err
 	}
 	command := []string{"exec", id, "mc-monitor"}
 	port := 25565

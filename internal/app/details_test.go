@@ -44,6 +44,7 @@ func TestServerDetailsSettingsPreserveCompose(t *testing.T) {
 	}
 	settings.Environment["SERVER_NAME"] = "New"
 	settings.Environment["DIFFICULTY"] = "hard"
+	settings.StopGracePeriod = "2m"
 	body, _ := json.Marshal(settings)
 	put := httptest.NewRecorder()
 	a.serverDetails(put, httptest.NewRequest("PUT", "/api/server-details/world/settings", strings.NewReader(string(body))))
@@ -54,7 +55,7 @@ func TestServerDetailsSettingsPreserveCompose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# server settings", "SERVER_NAME: New", "DIFFICULTY: hard", "19132:19132/udp", "./world-data:/data", "restart: unless-stopped"} {
+	for _, expected := range []string{"# server settings", "SERVER_NAME: New", "DIFFICULTY: hard", "19132:19132/udp", "./world-data:/data", "restart: unless-stopped", "stop_grace_period: 2m"} {
 		if !strings.Contains(string(result), expected) {
 			t.Fatalf("missing %q in %s", expected, result)
 		}
@@ -104,6 +105,8 @@ func TestPlayerStatusUsesExplicitContainerName(t *testing.T) {
 case "$*" in
   *" config --format json") echo '{"services":{"mc":{"image":"itzg/minecraft-bedrock-server","container_name":"bedrock","ports":[{"published":"19132","target":19132,"protocol":"udp"}]}}}' ;;
   "exec bedrock mc-monitor status-bedrock --port 19132") echo '127.0.0.1:19132 : version=1.26.52 online=1 max=10' ;;
+  "stats --no-stream --format {{json .}} bedrock") echo '{"CPUPerc":"2.10%","MemUsage":"512MiB / 2GiB","MemPerc":"25.00%","NetIO":"1MB / 2MB","BlockIO":"3MB / 4MB","PIDs":"18"}' ;;
+  "exec bedrock du -sk /data") echo '1048576 /data' ;;
   *) exit 1 ;;
 esac
 `
@@ -115,5 +118,21 @@ esac
 	status, err := a.playerStatus(context.Background(), "bedrock_ana")
 	if err != nil || status.Online != 1 || status.Max != 10 {
 		t.Fatalf("player status: %+v, %v", status, err)
+	}
+	resources, err := a.serverResources(context.Background(), "bedrock_ana", "resources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics, ok := resources.(resourceStatus)
+	if !ok || metrics.CPU != "2.10%" || metrics.MemoryPercent != "25.00%" {
+		t.Fatalf("resources: %+v", resources)
+	}
+	storage, err := a.serverResources(context.Background(), "bedrock_ana", "storage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, ok := storage.(map[string]any)
+	if !ok || usage["bytes"] != int64(1073741824) {
+		t.Fatalf("storage: %+v", storage)
 	}
 }
