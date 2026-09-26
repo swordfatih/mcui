@@ -33,6 +33,13 @@ func TestCreateBedrockAndDiscover(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(a.Root, req.Name, "data", "worlds", "world", "level.dat")); err != nil {
 		t.Fatal(err)
 	}
+	compose, err := os.ReadFile(filepath.Join(a.Root, req.Name, "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(compose), "stdin_open: true") || !strings.Contains(string(compose), "tty: true") {
+		t.Fatalf("Bedrock console input missing from Compose: %s", compose)
+	}
 }
 
 func TestDiscoverExistingComposeWithoutPort(t *testing.T) {

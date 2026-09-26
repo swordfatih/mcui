@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import Infrastructure from './Infrastructure'
+import Console from './Console'
 
 type Server = {
   name: string
@@ -25,7 +26,7 @@ type PlayerStatus = {
   players?: string[]
   reason?: string
 }
-type Tab = 'overview' | 'infrastructure' | 'logs'
+type Tab = 'overview' | 'infrastructure' | 'console'
 
 const api = axios.create({ baseURL: '/api' })
 const errorMessage = (error: unknown) => axios.isAxiosError(error)
@@ -55,8 +56,8 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
   const logs = useQuery({
     queryKey: ['logs', key],
     queryFn: async () => (await api.get<{ logs: string }>(`/server-details/${key}/logs`)).data,
-    enabled: tab === 'logs' || tab === 'overview',
-    refetchInterval: tab === 'logs' || tab === 'overview' ? 5000 : false,
+    enabled: tab === 'overview',
+    refetchInterval: tab === 'overview' ? 5000 : false,
   })
   const backup = useQuery({
     queryKey: ['backup', server.name],
@@ -131,7 +132,7 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
     </section>
 
     <nav className="detail-tabs" aria-label="Server sections">
-      {(['overview', 'infrastructure', 'logs'] as const).map(section => <button
+      {(['overview', 'infrastructure', 'console'] as const).map(section => <button
         key={section}
         type="button"
         className={tab === section ? 'selected' : ''}
@@ -182,7 +183,7 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
       <section className="panel overview-card logs-card">
         <div className="overview-card-heading">
           <div><p className="kicker">ACTIVITY</p><h2>Recent output</h2></div>
-          <button onClick={() => setTab('logs')}>View logs →</button>
+          <button onClick={() => setTab('console')}>Open console →</button>
         </div>
         {logs.isError ? <p className="error">{errorMessage(logs.error)}</p> : <pre className="server-logs">{recentLogs}</pre>}
       </section>
@@ -190,10 +191,6 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
 
     <Infrastructure server={server} active={tab === 'infrastructure'} />
 
-    {tab === 'logs' && <section className="panel detail-panel">
-      <h2>Recent logs</h2>
-      <p className="muted">Last 200 lines. Refreshes every five seconds.</p>
-      {logs.isError ? <p className="error">{errorMessage(logs.error)}</p> : <pre className="server-logs">{logs.data?.logs ?? 'Loading…'}</pre>}
-    </section>}
+    {tab === 'console' && <Console server={server} />}
   </main>
 }

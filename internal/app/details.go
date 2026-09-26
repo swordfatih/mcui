@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -145,6 +146,42 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, map[string]string{"logs": string(out)})
+	case "command":
+		if r.Method != http.MethodPost {
+			bad(w, 405, "Method not allowed")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 2048)
+		var request struct {
+			Command string `json:"command"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			bad(w, 400, "Invalid command request")
+			return
+		}
+		command := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(request.Command), "/"))
+		if command == "" || len(command) > 1024 || strings.IndexFunc(command, unicode.IsControl) >= 0 {
+			bad(w, 400, "Enter a single command of at most 1024 bytes")
+			return
+		}
+		if a.backup != nil && a.backup.capturing(name) {
+			bad(w, 409, "Server is being captured for backup")
+			return
+		}
+		if a.status(r.Context(), name) != "running" {
+			bad(w, 409, "Start the server before sending commands")
+			return
+		}
+		output, err := a.sendServerCommand(r.Context(), name, command)
+		if err != nil {
+			status := 502
+			if errors.Is(err, errBedrockStdinClosed) {
+				status = 409
+			}
+			bad(w, status, err.Error())
+			return
+		}
+		respond(w, 200, map[string]string{"output": output})
 	case "compose", "settings":
 		if r.Method != http.MethodGet && r.Method != http.MethodPut {
 			bad(w, 405, "Method not allowed")
@@ -279,6 +316,43 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 	default:
 		bad(w, 404, "Not found")
 	}
+}
+
+var errBedrockStdinClosed = errors.New("Bedrock console input is disabled. Add stdin_open: true and tty: true in Infrastructure → Compose source, then stop and start the server")
+
+func (a *API) sendServerCommand(parent context.Context, name, command string) (string, error) {
+	server, service, err := a.minecraftService(name)
+	if err != nil {
+		return "", err
+	}
+	config, err := a.readComposeConfig(name)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	id, err := a.serviceContainer(ctx, name, service, config)
+	if err != nil {
+		return "", err
+	}
+	args := []string{"exec", id}
+	if server.Edition == "bedrock" {
+		stdin, err := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.Config.OpenStdin}}", id).CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("Check Bedrock console input: %s", cleanError(stdin))
+		}
+		if strings.TrimSpace(string(stdin)) != "true" {
+			return "", errBedrockStdinClosed
+		}
+		args = append(args, "send-command", command)
+	} else {
+		args = append(args, "rcon-cli", "--host", "127.0.0.1", command)
+	}
+	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("Send command: %s", cleanError(out))
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 type playerStatus struct {

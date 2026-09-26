@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -134,5 +135,86 @@ esac
 	usage, ok := storage.(map[string]any)
 	if !ok || usage["bytes"] != int64(1073741824) {
 		t.Fatalf("storage: %+v", storage)
+	}
+}
+
+func TestServerCommandUsesEditionConsole(t *testing.T) {
+	for _, edition := range []string{"bedrock", "java"} {
+		t.Run(edition, func(t *testing.T) {
+			root := t.TempDir()
+			serverDir := filepath.Join(root, "world")
+			if err := os.Mkdir(serverDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			image := "itzg/minecraft-server:latest"
+			tool := "rcon-cli"
+			if edition == "bedrock" {
+				image = "itzg/minecraft-bedrock-server:latest"
+				tool = "send-command"
+			}
+			compose := "services:\n  mc:\n    image: " + image + "\n"
+			if err := os.WriteFile(filepath.Join(serverDir, "compose.yaml"), []byte(compose), 0644); err != nil {
+				t.Fatal(err)
+			}
+			bin := t.TempDir()
+			config := filepath.Join(bin, "config.json")
+			configJSON, _ := json.Marshal(map[string]any{"services": map[string]any{"mc": map[string]string{"image": image, "container_name": "custom-server"}}})
+			if err := os.WriteFile(config, configJSON, 0644); err != nil {
+				t.Fatal(err)
+			}
+			script := `#!/bin/sh
+case "$*" in
+  *" config --format json") cat "$MCUI_TEST_CONFIG" ;;
+  *" ps -q mc") echo custom-server ;;
+  "inspect --format {{.State.Status}} custom-server") echo running ;;
+  "inspect --format {{.Config.OpenStdin}} custom-server") echo "${MCUI_TEST_OPEN_STDIN:-true}" ;;
+  "exec custom-server "*)
+    if [ "$3" = rcon-cli ]; then
+      [ "$4" = --host ] && [ "$5" = 127.0.0.1 ] || exit 1
+      printf '%s\n' "$3" "$6" > "$MCUI_TEST_COMMAND"
+      echo 'RCON reply'
+    else
+      printf '%s\n' "$3" "$4" > "$MCUI_TEST_COMMAND"
+    fi ;;
+  *) exit 1 ;;
+esac
+`
+			if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(script), 0755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("MCUI_TEST_CONFIG", config)
+			commandFile := filepath.Join(bin, "command")
+			t.Setenv("MCUI_TEST_COMMAND", commandFile)
+			t.Setenv("MCUI_TEST_OPEN_STDIN", "true")
+			a := &API{Root: root}
+			body, _ := json.Marshal(map[string]string{"command": "/say hello & friends"})
+			response := httptest.NewRecorder()
+			a.serverDetails(response, httptest.NewRequest(http.MethodPost, "/api/server-details/world/command", strings.NewReader(string(body))))
+			if response.Code != http.StatusOK {
+				t.Fatalf("command: %d %s", response.Code, response.Body.String())
+			}
+			got, err := os.ReadFile(commandFile)
+			if err != nil || string(got) != tool+"\nsay hello & friends\n" {
+				t.Fatalf("wrong container command: %q, %v", got, err)
+			}
+			if edition == "java" && !strings.Contains(response.Body.String(), "RCON reply") {
+				t.Fatalf("missing RCON response: %s", response.Body.String())
+			}
+			invalid, _ := json.Marshal(map[string]string{"command": "say one\nstop"})
+			response = httptest.NewRecorder()
+			a.serverDetails(response, httptest.NewRequest(http.MethodPost, "/api/server-details/world/command", strings.NewReader(string(invalid))))
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("multiline command accepted: %d %s", response.Code, response.Body.String())
+			}
+			if edition == "bedrock" {
+				t.Setenv("MCUI_TEST_OPEN_STDIN", "false")
+				response = httptest.NewRecorder()
+				a.serverDetails(response, httptest.NewRequest(http.MethodPost, "/api/server-details/world/command", strings.NewReader(string(body))))
+				if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "stdin_open") {
+					t.Fatalf("closed stdin: %d %s", response.Code, response.Body.String())
+				}
+			}
+		})
 	}
 }

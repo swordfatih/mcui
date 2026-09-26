@@ -402,7 +402,7 @@ func (a *API) create(req CreateRequest) error {
 	}
 	compose := fmt.Sprintf("services:\n  mc:\n    image: %s\n    environment:\n      EULA: \"TRUE\"\n", image)
 	if req.Edition == "bedrock" {
-		compose += "      LEVEL_NAME: \"world\"\n"
+		compose += "      LEVEL_NAME: \"world\"\n    stdin_open: true\n    tty: true\n"
 	}
 	compose += fmt.Sprintf("    ports:\n      - \"%d:%d%s\"\n    volumes:\n      - ./data:/data\n    restart: unless-stopped\n    stop_grace_period: 2m\n", req.Port, target, protocol)
 	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(compose), 0644); err != nil {

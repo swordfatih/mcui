@@ -643,6 +643,242 @@ footer span {
 .env-add input { background: #101a13; border: 1px solid #435446; border-radius: 8px; color: #f2f6f0; padding: 11px 12px; font: inherit; }
 .env-add input { flex: 1; min-width: 190px; }
 .server-logs { background: #101a13; padding: 18px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 650px; overflow: auto; color: #dce8d6; font-size: 12px; }
+
+.console-page {
+  display: grid;
+  gap: 22px;
+}
+
+.console-connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #aeb9ac;
+  font-size: 12px;
+  white-space: nowrap;
+  padding-bottom: 6px;
+}
+
+.console-connection i,
+.console-live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #849385;
+}
+
+.console-connection.online i,
+.console-live i {
+  background: #b7e98e;
+  box-shadow: 0 0 0 3px #b7e98e22;
+}
+
+.console-command-form label {
+  margin-bottom: 9px;
+}
+
+.console-command-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 6px 6px 6px 16px;
+  border: 1px solid #59715a;
+  border-radius: 11px;
+  background: #101a13;
+}
+
+.console-command-row:focus-within {
+  border-color: #b7e98e;
+  box-shadow: 0 0 0 3px #b7e98e22;
+}
+
+.console-prompt {
+  color: #b7e98e;
+  font: 700 27px/1 'Space Grotesk';
+}
+
+.console-command-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0;
+  border: 0;
+  outline: 0;
+  color: #edf6e8;
+  background: transparent;
+  font: 500 14px/1.4 monospace;
+}
+
+.console-command-row input::placeholder {
+  color: #879b88;
+}
+
+.console-command-row .primary {
+  justify-content: center;
+  min-width: 130px;
+  padding: 11px 15px;
+}
+
+.console-command-row button:disabled {
+  cursor: default;
+}
+
+.console-help {
+  margin: 10px 0 0;
+  color: #9cad9a;
+  font-size: 12px;
+}
+
+.console-feedback {
+  margin: 18px 0 0;
+}
+
+.console-result {
+  margin-top: 19px;
+  padding: 15px 17px;
+  border: 1px solid #456348;
+  border-radius: 10px;
+  background: #213526;
+}
+
+.console-result-label {
+  display: block;
+  color: #c5e8ae;
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.console-result pre,
+.console-result p {
+  margin: 9px 0 0;
+  color: #e5eee0;
+  font: 13px/1.5 monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.console-log-head {
+  align-items: center;
+}
+
+.console-refresh,
+.console-follow {
+  border: 1px solid #5b7356;
+  border-radius: 8px;
+  padding: 9px 13px;
+  background: #2c402c;
+  color: #d6edc4;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.console-refresh {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.console-refresh:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.console-terminal {
+  overflow: hidden;
+  border: 1px solid #405443;
+  border-radius: 12px;
+  background: #0e1711;
+}
+
+.console-terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 13px 17px;
+  border-bottom: 1px solid #334335;
+  color: #aabaaa;
+  font: 12px/1.3 monospace;
+}
+
+.console-terminal-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.console-terminal-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #658068;
+}
+
+.console-terminal-dots i:first-child {
+  background: #c68672;
+}
+
+.console-terminal-dots i:nth-child(2) {
+  background: #bea665;
+}
+
+.console-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: #b7e98e;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.console-output {
+  min-height: 360px;
+  max-height: 580px;
+  margin: 0;
+  padding: 21px;
+  overflow: auto;
+  color: #dce8d6;
+  font: 12px/1.65 monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.console-log-error {
+  margin: 0;
+  padding: 21px;
+}
+
+.console-follow {
+  justify-self: end;
+}
+
+@media (max-width: 600px) {
+  .console-command-row {
+    flex-wrap: wrap;
+  }
+
+  .console-command-row input {
+    width: calc(100% - 40px);
+  }
+
+  .console-command-row .primary {
+    width: 100%;
+  }
+
+  .console-log-head {
+    flex-wrap: wrap;
+  }
+
+  .console-refresh {
+    margin-left: 46px;
+  }
+
+  .console-output {
+    min-height: 300px;
+    padding: 16px;
+  }
+}
+
 @media(max-width:520px) {
   .login-card {
     padding: 30px 24px;
