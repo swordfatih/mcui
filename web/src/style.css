@@ -47,6 +47,8 @@ header {
   gap: 10px;
   font: 700 23px 'Space Grotesk';
   letter-spacing: -1px;
+  color: inherit;
+  text-decoration: none;
 }
 
 .brand-icon {
@@ -642,7 +644,7 @@ footer span {
   margin: 0;
 }
 
-.server-card { width: 100%; display: flex; align-items: center; gap: 14px; text-align: left; padding: 17px; background: #202d22; color: #e9eee9; border: 1px solid #374838; border-radius: 13px; transition: background .18s, border-color .18s, transform .18s; }
+.server-card { width: 100%; display: flex; align-items: center; gap: 14px; text-align: left; padding: 17px; background: #202d22; color: #e9eee9; border: 1px solid #374838; border-radius: 13px; text-decoration: none; transition: background .18s, border-color .18s, transform .18s; }
 .server-card:hover { background: #293a2b; border-color: #7ea66d; transform: translateY(-2px); }
 .server-card:focus-visible, .copy-field button:focus-visible, .detail-tabs button:focus-visible { outline: 2px solid #b7e98e; outline-offset: 3px; }
 .server-card-copy { flex: 1; min-width: 0; display: grid; gap: 4px; }
@@ -702,6 +704,8 @@ footer span {
 @media(max-width:520px) { .server-card-state { display: none; } .dashboard-actions { flex-direction: column; } .dashboard-actions button { width: 100%; } .dashboard-emblem { width: 48px; height: 48px; font-size: 24px; } .dashboard-heading h1 { font-size: 30px; } .overview-card { padding: 20px; } }
 
 .dashboard { padding-bottom: 70px; }
+.route-state { padding: 70px 0; }
+.route-state a { color: #b8e995; }
 .back-button, .env-row button, .env-add button { background: #2c402c; color: #d6edc4; border: 1px solid #5b7356; border-radius: 8px; padding: 9px 13px; }
 .detail-panel .muted { margin: 9px 0 22px; font-size: 14px; }
 .env-list { display: grid; gap: 12px; margin-top: 22px; }

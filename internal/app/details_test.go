@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -85,5 +86,34 @@ func TestParsePlayerStatus(t *testing.T) {
 	bedrock, err := parsePlayerStatus("bedrock", []byte("127.0.0.1:19132 : version=1.21.1 online=3 max=10"))
 	if err != nil || !bedrock.Available || bedrock.Online != 3 || bedrock.Max != 10 || bedrock.Version != "1.21.1" {
 		t.Fatalf("Bedrock status: %+v, %v", bedrock, err)
+	}
+}
+
+func TestPlayerStatusUsesExplicitContainerName(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "bedrock_ana")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	compose := "services:\n  mc:\n    image: itzg/minecraft-bedrock-server\n    container_name: bedrock\n    ports:\n      - '19132:19132/udp'\n"
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(compose), 0644); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	script := `#!/bin/sh
+case "$*" in
+  *" config --format json") echo '{"services":{"mc":{"image":"itzg/minecraft-bedrock-server","container_name":"bedrock","ports":[{"published":"19132","target":19132,"protocol":"udp"}]}}}' ;;
+  "exec bedrock mc-monitor status-bedrock --port 19132") echo '127.0.0.1:19132 : version=1.26.52 online=1 max=10' ;;
+  *) exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a := &API{Root: root}
+	status, err := a.playerStatus(context.Background(), "bedrock_ana")
+	if err != nil || status.Online != 1 || status.Max != 10 {
+		t.Fatalf("player status: %+v, %v", status, err)
 	}
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"archive/zip"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -109,5 +110,23 @@ func TestServersHTTP(t *testing.T) {
 	a.servers(listResp, httptest.NewRequest("GET", "/api/servers", nil))
 	if listResp.Code != 200 || !strings.Contains(listResp.Body.String(), `"name":"bedrock-home"`) {
 		t.Fatalf("list: %d %s", listResp.Code, listResp.Body.String())
+	}
+}
+
+func TestServerPageDeepLink(t *testing.T) {
+	index := filepath.Join(t.TempDir(), "index.html")
+	if err := os.WriteFile(index, []byte("<html>mcui</html>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	handler := serverPageHandler(index)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/servers/bedrock_ana", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "mcui") {
+		t.Fatalf("deep link: %d %s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/servers/bedrock_ana/extra", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("nested path accepted: %d", response.Code)
 	}
 }

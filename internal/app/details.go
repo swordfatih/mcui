@@ -298,20 +298,24 @@ func (a *API) playerStatus(parent context.Context, name string) (playerStatus, e
 	if err != nil {
 		return playerStatus{}, err
 	}
-	if a.status(parent, name) != "running" {
-		return playerStatus{}, errors.New("Server is not running")
-	}
-	args, err := a.composeArgs(name)
+	ctx, cancel := context.WithTimeout(parent, 7*time.Second)
+	defer cancel()
+	config, err := a.readComposeConfig(name)
 	if err != nil {
 		return playerStatus{}, err
 	}
-	ctx, cancel := context.WithTimeout(parent, 7*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", append(args, "ps", "-q", service)...).CombinedOutput()
-	if err != nil {
-		return playerStatus{}, fmt.Errorf("find server container: %s", cleanError(out))
+	id := config.Services[service].ContainerName
+	if id == "" {
+		args, argsErr := a.composeArgs(name)
+		if argsErr != nil {
+			return playerStatus{}, argsErr
+		}
+		out, psErr := exec.CommandContext(ctx, "docker", append(args, "ps", "-q", service)...).CombinedOutput()
+		if psErr != nil {
+			return playerStatus{}, fmt.Errorf("find server container: %s", cleanError(out))
+		}
+		id = strings.TrimSpace(string(out))
 	}
-	id := strings.TrimSpace(string(out))
 	if id == "" {
 		return playerStatus{}, errors.New("Server container is unavailable")
 	}
@@ -320,12 +324,10 @@ func (a *API) playerStatus(parent context.Context, name string) (playerStatus, e
 	if server.Edition == "bedrock" {
 		port = 19132
 	}
-	if config, configErr := a.readComposeConfig(name); configErr == nil {
-		for _, published := range config.Services[service].Ports {
-			if (server.Edition == "bedrock" && published.Protocol == "udp") || (server.Edition == "java" && (published.Protocol == "tcp" || published.Protocol == "")) {
-				port = published.Target
-				break
-			}
+	for _, published := range config.Services[service].Ports {
+		if (server.Edition == "bedrock" && published.Protocol == "udp") || (server.Edition == "java" && (published.Protocol == "tcp" || published.Protocol == "")) {
+			port = published.Target
+			break
 		}
 	}
 	if server.Edition == "bedrock" {
@@ -333,7 +335,7 @@ func (a *API) playerStatus(parent context.Context, name string) (playerStatus, e
 	} else {
 		command = append(command, "status", "--json", "--timeout", "5s", "--port", strconv.Itoa(port))
 	}
-	out, err = exec.CommandContext(ctx, "docker", command...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "docker", command...).CombinedOutput()
 	if err != nil {
 		return playerStatus{}, fmt.Errorf("Player status unavailable: %s", cleanError(out))
 	}

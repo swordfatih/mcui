@@ -37,6 +37,7 @@ docker compose up --build -d
 Open `https://<DOMAIN>` and sign in with `MCUI_HTTP_PASSWORD`. MCUI uses a 12-hour session cookie; signing out ends that session. The Docker Compose deployment requires a password. A native run enables the sign-in page when `MCUI_HTTP_PASSWORD` is set. Use HTTPS to protect credentials and sessions. The dashboard container needs the Docker socket to manage the server projects. Restrict access to the dashboard and protect the Docker socket.
 
 Each server card opens its own dashboard. The dashboard shows a copyable `DOMAIN:PORT` address, using the published game port from Docker Compose, plus start and stop controls, online and maximum player counts, Google Drive backup status and action, recent logs, itzg settings, and the full Compose YAML editor. Player counts refresh every 15 seconds through the `mc-monitor` tool included in the itzg images. Java may also expose a sample of player names; Bedrock status provides counts without names. The Docker deployment passes `DOMAIN` as `MCUI_PUBLIC_HOST`; native runs can set `MCUI_PUBLIC_HOST` explicitly. Compose edits are validated before saving and take effect after the server is stopped and started again. The settings form supports common variables and any additional itzg environment variable; advanced YAML editing covers other Compose options. Server data editing and RCON are planned for later.
+Server dashboards have shareable `/servers/<name>` URLs. Refreshing a dashboard keeps the same server open, and browser Back and Forward navigate between pages.
 
 ## Google Drive backups
 

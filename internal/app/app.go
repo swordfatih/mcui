@@ -60,9 +60,10 @@ func projectName(name string) string {
 }
 
 type composeService struct {
-	Image   string          `json:"image"`
-	Volumes []composeVolume `json:"volumes"`
-	Ports   []composePort   `json:"ports"`
+	Image         string          `json:"image"`
+	ContainerName string          `json:"container_name"`
+	Volumes       []composeVolume `json:"volumes"`
+	Ports         []composePort   `json:"ports"`
 }
 
 type composePort struct {
@@ -207,9 +208,20 @@ func Serve(addr, root string) error {
 	mux.HandleFunc("/api/backups/config", a.backupConfigHandler)
 	mux.HandleFunc("/api/servers/", a.action)
 	mux.HandleFunc("/api/server-details/", a.serverDetails)
+	mux.HandleFunc("/servers/", serverPageHandler("web/dist/index.html"))
 	mux.Handle("/", http.FileServer(http.Dir("web/dist")))
 	log.Printf("mcui listening on %s; servers in %s", addr, root)
 	return http.ListenAndServe(addr, newSessionAuth(mux))
+}
+func serverPageHandler(index string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/servers/")
+		if (r.Method != http.MethodGet && r.Method != http.MethodHead) || !safeFolderName(name) {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, index)
+	}
 }
 func respond(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
