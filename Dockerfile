@@ -15,7 +15,7 @@ COPY internal ./internal
 RUN CGO_ENABLED=0 go build -o /mcui ./cmd/mcui
 
 FROM alpine:3.22 AS runner
-RUN apk add --no-cache docker-cli docker-cli-compose restic rclone ca-certificates
+RUN apk add --no-cache docker-cli docker-cli-compose rclone ca-certificates
 WORKDIR /app
 COPY --from=backend /mcui /app/mcui
 COPY --from=web /src/web/dist /app/web/dist

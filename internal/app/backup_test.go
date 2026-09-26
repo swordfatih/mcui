@@ -1,6 +1,9 @@
 package app
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,9 +31,6 @@ func TestBackupCapturesRestartsAndUploads(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(config, "rclone.conf"), []byte("[drive]\ntype = drive\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(config, "restic-password"), []byte("test password"), 0600); err != nil {
-		t.Fatal(err)
-	}
 	bin := t.TempDir()
 	operations := filepath.Join(bin, "operations")
 	dockerScript := `#!/bin/sh
@@ -45,22 +45,19 @@ case "$1" in
     esac ;;
 esac
 `
-	resticScript := `#!/bin/sh
-case "$1" in
-  cat) exit 1 ;;
-  init) echo init >> "$MCUI_TEST_OPERATIONS" ;;
-  backup)
-    echo backup >> "$MCUI_TEST_OPERATIONS"
-    echo '{"message_type":"summary","snapshot_id":"snapshot-123"}' ;;
-esac
+	rcloneScript := `#!/bin/sh
+echo upload >> "$MCUI_TEST_OPERATIONS"
+cp "$4" "$MCUI_TEST_ARCHIVE"
 `
-	for name, content := range map[string]string{"docker": dockerScript, "restic": resticScript, "rclone": "#!/bin/sh\nexit 0\n"} {
+	for name, content := range map[string]string{"docker": dockerScript, "rclone": rcloneScript} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(content), 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("MCUI_TEST_OPERATIONS", operations)
+	archive := filepath.Join(bin, "uploaded.tar.gz")
+	t.Setenv("MCUI_TEST_ARCHIVE", archive)
 	manager, err := newBackupManager(a)
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +70,7 @@ esac
 	for time.Now().Before(deadline) {
 		state := manager.state("bedrock-home")
 		if state.State == "complete" {
-			if state.SnapshotID != "snapshot-123" {
+			if !strings.HasPrefix(state.SnapshotID, "bedrock-home-") || !strings.HasSuffix(state.SnapshotID, ".tar.gz") {
 				t.Fatalf("wrong snapshot: %+v", state)
 			}
 			break
@@ -90,8 +87,39 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(string(b)) != "stop\nup\ninit\nbackup" {
+	if strings.TrimSpace(string(b)) != "stop\nup\nupload" {
 		t.Fatalf("unexpected operation order: %s", b)
+	}
+	f, err := os.Open(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	entries := map[string]string{}
+	reader := tar.NewReader(gz)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header.Typeflag == tar.TypeReg {
+			content, err := io.ReadAll(reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entries[header.Name] = string(content)
+		}
+	}
+	if entries["data/worlds/world/level.dat"] != "world data" || entries["compose.yaml"] == "" {
+		t.Fatalf("archive missing server files: %v", entries)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".backup-stage", "bedrock-home")); !os.IsNotExist(err) {
 		t.Fatalf("staging directory remains: %v", err)
@@ -103,7 +131,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := nextManager.state("bedrock-home"); got.State != "complete" || got.SnapshotID != "snapshot-123" {
+	if got := nextManager.state("bedrock-home"); got.State != "complete" || !strings.HasSuffix(got.SnapshotID, ".tar.gz") {
 		t.Fatalf("last backup was not persisted: %+v", got)
 	}
 }

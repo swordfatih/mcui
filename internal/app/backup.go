@@ -1,12 +1,14 @@
 package app
 
 import (
-	"bytes"
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -87,9 +89,6 @@ func newBackupManager(a *API) (*BackupManager, error) {
 	return &BackupManager{api: a, config: config, states: map[string]BackupState{}, slots: make(chan struct{}, 1)}, nil
 }
 func (b *BackupManager) ready() bool {
-	if _, err := exec.LookPath("restic"); err != nil {
-		return false
-	}
 	if _, err := exec.LookPath("rclone"); err != nil {
 		return false
 	}
@@ -102,8 +101,7 @@ func (b *BackupManager) ready() bool {
 	if err != nil || !hasDriveRemote(string(content), b.config.Remote) {
 		return false
 	}
-	pass, err := os.Stat(filepath.Join(b.config.Dir, "restic-password"))
-	return err == nil && pass.Mode().IsRegular() && pass.Size() > 0
+	return true
 }
 func hasDriveRemote(config, remote string) bool {
 	inSection := false
@@ -123,12 +121,7 @@ func hasDriveRemote(config, remote string) bool {
 	return false
 }
 func (b *BackupManager) repo(name string) string {
-	return "rclone:" + b.config.Remote + ":" + b.config.Path + "/" + name
-}
-func (b *BackupManager) environment(name string) []string {
-	env := os.Environ()
-	env = append(env, "RCLONE_CONFIG="+filepath.Join(b.config.Dir, "rclone.conf"), "RESTIC_PASSWORD_FILE="+filepath.Join(b.config.Dir, "restic-password"), "RESTIC_REPOSITORY="+b.repo(name), "RESTIC_CACHE_DIR="+filepath.Join(b.config.Dir, "cache"))
-	return env
+	return b.config.Remote + ":" + b.config.Path + "/" + name
 }
 func (b *BackupManager) state(name string) BackupState {
 	b.mu.Lock()
@@ -172,7 +165,7 @@ func (b *BackupManager) start(name string) error {
 		return errors.New("Server not found")
 	}
 	if !b.ready() {
-		return errors.New("Backups are not configured: add rclone.conf and restic-password to the backup directory")
+		return errors.New("Backups are not configured: add rclone.conf to the backup directory")
 	}
 	if b.active(name) {
 		return errors.New("Backup already in progress")
@@ -336,41 +329,83 @@ func (b *BackupManager) compose(parent context.Context, name string, args ...str
 	return nil
 }
 func (b *BackupManager) upload(parent context.Context, name, stage string) (string, error) {
-	if err := os.MkdirAll(filepath.Join(b.config.Dir, "cache"), 0700); err != nil {
-		return "", err
+	filename := name + "-" + time.Now().UTC().Format("20060102T150405.000000000Z") + ".tar.gz"
+	archive := filepath.Join(filepath.Dir(stage), filename)
+	defer os.Remove(archive)
+	if err := writeBackupArchive(stage, archive); err != nil {
+		return "", fmt.Errorf("compress backup: %w", err)
 	}
-	env := b.environment(name)
-	run := func(args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(parent, "restic", args...)
-		cmd.Env = env
-		return cmd.CombinedOutput()
-	}
-	if _, err := run("cat", "config"); err != nil {
-		if out, initErr := run("init"); initErr != nil {
-			return "", fmt.Errorf("restic repository unavailable: %s", cleanError(out))
-		}
-	}
-	out, err := run("backup", "--json", "--tag", "mcui:"+name, stage)
+	cmd := exec.CommandContext(parent, "rclone", "copyto", "--config", filepath.Join(b.config.Dir, "rclone.conf"), archive, b.repo(name)+"/"+filename)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("restic backup failed: %s", cleanError(out))
+		return "", fmt.Errorf("upload backup: %s: %w", cleanError(out), err)
 	}
-	var summary struct {
-		MessageType string `json:"message_type"`
-		SnapshotID  string `json:"snapshot_id"`
+	return filename, nil
+}
+func writeBackupArchive(source, destination string) (err error) {
+	out, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
 	}
-	for _, line := range bytes.Split(out, []byte("\n")) {
-		var item struct {
-			MessageType string `json:"message_type"`
-			SnapshotID  string `json:"snapshot_id"`
+	defer func() {
+		if closeErr := out.Close(); err == nil {
+			err = closeErr
 		}
-		if json.Unmarshal(line, &item) == nil && item.MessageType == "summary" {
-			summary = item
+	}()
+	gz := gzip.NewWriter(out)
+	tarWriter := tar.NewWriter(gz)
+	err = filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
+		if path == source {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if header.Linkname, err = os.Readlink(path); err != nil {
+				return err
+			}
+		}
+		header.Name = filepath.ToSlash(rel)
+		if info.IsDir() {
+			header.Name += "/"
+		}
+		if err := tarWriter.WriteHeader(header); err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(tarWriter, in)
+		closeErr := in.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	})
+	if closeErr := tarWriter.Close(); err == nil {
+		err = closeErr
 	}
-	if summary.SnapshotID == "" {
-		return "", errors.New("restic backup completed without a snapshot ID")
+	if closeErr := gz.Close(); err == nil {
+		err = closeErr
 	}
-	return summary.SnapshotID, nil
+	return err
 }
 func cleanError(out []byte) string {
 	value := strings.TrimSpace(string(out))
