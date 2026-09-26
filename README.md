@@ -36,7 +36,7 @@ docker compose up --build -d
 
 Open `https://<DOMAIN>` and sign in with `MCUI_HTTP_PASSWORD`. MCUI uses a 12-hour session cookie; signing out ends that session. The Docker Compose deployment requires a password. A native run enables the sign-in page when `MCUI_HTTP_PASSWORD` is set. Use HTTPS to protect credentials and sessions. The dashboard container needs the Docker socket to manage the server projects. Restrict access to the dashboard and protect the Docker socket.
 
-Each server card shows a copyable `DOMAIN:PORT` address, using its published game port from Docker Compose. The Docker deployment passes `DOMAIN` as `MCUI_PUBLIC_HOST`; native runs can set `MCUI_PUBLIC_HOST` explicitly. Open a server dashboard to edit its itzg image and environment variables, edit the full Compose YAML, or see the latest 200 Docker Compose log lines. Compose edits are validated before saving and take effect after the server is restarted. The settings form supports common variables and any additional itzg environment variable; advanced YAML editing covers other Compose options. Server data editing and RCON are planned for later.
+Each server card opens its own dashboard. The dashboard shows a copyable `DOMAIN:PORT` address, using the published game port from Docker Compose, plus start and stop controls, online and maximum player counts, Google Drive backup status and action, recent logs, itzg settings, and the full Compose YAML editor. Player counts refresh every 15 seconds through the `mc-monitor` tool included in the itzg images. Java may also expose a sample of player names; Bedrock status provides counts without names. The Docker deployment passes `DOMAIN` as `MCUI_PUBLIC_HOST`; native runs can set `MCUI_PUBLIC_HOST` explicitly. Compose edits are validated before saving and take effect after the server is stopped and started again. The settings form supports common variables and any additional itzg environment variable; advanced YAML editing covers other Compose options. Server data editing and RCON are planned for later.
 
 ## Google Drive backups
 
@@ -85,6 +85,7 @@ JSON requests and responses:
 | `GET` | `/api/servers/{name}/backup` | Current or last backup status |
 | `POST` | `/api/servers/{name}/backup` | Queue a Google Drive backup |
 | `GET` | `/api/server-details/{name}/logs` | Last 200 Compose log lines |
+| `GET` | `/api/server-details/{name}/players` | Live player counts, version, and available Java player sample |
 | `GET`, `PUT` | `/api/server-details/{name}/settings` | Read or edit image and environment variables |
 | `GET`, `PUT` | `/api/server-details/{name}/compose` | Read or edit validated Compose YAML |
 

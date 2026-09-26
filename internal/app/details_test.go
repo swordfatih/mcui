@@ -76,3 +76,14 @@ func TestServerDetailsSettingsPreserveCompose(t *testing.T) {
 		t.Fatalf("invalid YAML accepted: %d", invalid.Code)
 	}
 }
+
+func TestParsePlayerStatus(t *testing.T) {
+	java, err := parsePlayerStatus("java", []byte(`{"server_info":{"version":{"name":"1.21"},"players":{"online":2,"max":20,"sample":[{"name":"Alex"},{"name":"Sam"}]}}}`))
+	if err != nil || !java.Available || java.Online != 2 || java.Max != 20 || len(java.Players) != 2 || java.Players[0] != "Alex" {
+		t.Fatalf("Java status: %+v, %v", java, err)
+	}
+	bedrock, err := parsePlayerStatus("bedrock", []byte("127.0.0.1:19132 : version=1.21.1 online=3 max=10"))
+	if err != nil || !bedrock.Available || bedrock.Online != 3 || bedrock.Max != 10 || bedrock.Version != "1.21.1" {
+		t.Fatalf("Bedrock status: %+v, %v", bedrock, err)
+	}
+}

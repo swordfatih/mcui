@@ -11,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,6 +93,17 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch action {
+	case "players":
+		if r.Method != http.MethodGet {
+			bad(w, 405, "Method not allowed")
+			return
+		}
+		status, err := a.playerStatus(r.Context(), name)
+		if err != nil {
+			respond(w, 200, map[string]any{"available": false, "reason": err.Error()})
+			return
+		}
+		respond(w, 200, status)
 	case "logs":
 		if r.Method != http.MethodGet {
 			bad(w, 405, "Method not allowed")
@@ -225,6 +238,106 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 	default:
 		bad(w, 404, "Not found")
 	}
+}
+
+type playerStatus struct {
+	Available bool     `json:"available"`
+	Online    int      `json:"online"`
+	Max       int      `json:"max"`
+	Version   string   `json:"version,omitempty"`
+	Players   []string `json:"players"`
+}
+
+var bedrockStatusPattern = regexp.MustCompile(`version=([^\s]+) online=([0-9]+) max=([0-9]+)`)
+
+func parsePlayerStatus(edition string, output []byte) (playerStatus, error) {
+	result := playerStatus{Available: true, Players: []string{}}
+	if edition == "bedrock" {
+		parts := bedrockStatusPattern.FindStringSubmatch(string(output))
+		if len(parts) != 4 {
+			return playerStatus{}, errors.New("Bedrock status has an unexpected format")
+		}
+		result.Version = parts[1]
+		result.Online, _ = strconv.Atoi(parts[2])
+		result.Max, _ = strconv.Atoi(parts[3])
+		return result, nil
+	}
+	var data struct {
+		ServerInfo struct {
+			Version struct {
+				Name string `json:"name"`
+			} `json:"version"`
+			Players struct {
+				Online int `json:"online"`
+				Max    int `json:"max"`
+				Sample []struct {
+					Name string `json:"name"`
+				} `json:"sample"`
+			} `json:"players"`
+		} `json:"server_info"`
+	}
+	if err := json.Unmarshal(output, &data); err != nil {
+		return playerStatus{}, err
+	}
+	result.Online = data.ServerInfo.Players.Online
+	result.Max = data.ServerInfo.Players.Max
+	if result.Max == 0 {
+		return playerStatus{}, errors.New("Java server has not provided player status yet")
+	}
+	result.Version = data.ServerInfo.Version.Name
+	for _, player := range data.ServerInfo.Players.Sample {
+		if player.Name != "" && len(result.Players) < 20 {
+			result.Players = append(result.Players, player.Name)
+		}
+	}
+	return result, nil
+}
+
+func (a *API) playerStatus(parent context.Context, name string) (playerStatus, error) {
+	server, service, err := a.minecraftService(name)
+	if err != nil {
+		return playerStatus{}, err
+	}
+	if a.status(parent, name) != "running" {
+		return playerStatus{}, errors.New("Server is not running")
+	}
+	args, err := a.composeArgs(name)
+	if err != nil {
+		return playerStatus{}, err
+	}
+	ctx, cancel := context.WithTimeout(parent, 7*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", append(args, "ps", "-q", service)...).CombinedOutput()
+	if err != nil {
+		return playerStatus{}, fmt.Errorf("find server container: %s", cleanError(out))
+	}
+	id := strings.TrimSpace(string(out))
+	if id == "" {
+		return playerStatus{}, errors.New("Server container is unavailable")
+	}
+	command := []string{"exec", id, "mc-monitor"}
+	port := 25565
+	if server.Edition == "bedrock" {
+		port = 19132
+	}
+	if config, configErr := a.readComposeConfig(name); configErr == nil {
+		for _, published := range config.Services[service].Ports {
+			if (server.Edition == "bedrock" && published.Protocol == "udp") || (server.Edition == "java" && (published.Protocol == "tcp" || published.Protocol == "")) {
+				port = published.Target
+				break
+			}
+		}
+	}
+	if server.Edition == "bedrock" {
+		command = append(command, "status-bedrock", "--port", strconv.Itoa(port))
+	} else {
+		command = append(command, "status", "--json", "--timeout", "5s", "--port", strconv.Itoa(port))
+	}
+	out, err = exec.CommandContext(ctx, "docker", command...).CombinedOutput()
+	if err != nil {
+		return playerStatus{}, fmt.Errorf("Player status unavailable: %s", cleanError(out))
+	}
+	return parsePlayerStatus(server.Edition, out)
 }
 
 func (a *API) saveCompose(file string, content []byte, name string) error {
