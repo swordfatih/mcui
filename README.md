@@ -64,7 +64,7 @@ servers/server1/
 └── last-backup.json
 ```
 
-`last-backup.json` records the last successful snapshot ID and time. The backup contents are stored in that server's encrypted Google Drive restic repository. The folder has its own `compose.yaml` and `data/`; `last-backup.json` appears after the first successful backup. Those files are the source of truth. MCUI has no database. You can inspect or edit a server's Compose file directly. The dashboard recognizes the generated itzg image and port syntax, and Docker Compose provides runtime status. Keep these folders together when moving to another host, then start the projects there. The dashboard does not delete servers in this version.
+`last-backup.json` records the last successful snapshot ID and time. The backup contents are stored in that server's encrypted Google Drive restic repository. The folder has its own Compose file and `data/`; `last-backup.json` appears after the first successful backup. Those files are the source of truth. MCUI has no database. It uses `docker compose config` to find a single service using an itzg Minecraft image; the service name and published port can vary, and Docker Compose's standard Compose filenames are supported. Keep these folders together when moving to another host, then start the projects there. The dashboard does not delete servers in this version.
 
 MCUI uses [itzg/minecraft-bedrock-server](https://github.com/itzg/docker-minecraft-bedrock-server) for Bedrock and [itzg/minecraft-server](https://github.com/itzg/docker-minecraft-server) for Java. Both images mount the server's `data/` at `/data`.
 
@@ -74,7 +74,7 @@ JSON requests and responses:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/servers` | List `{name, edition, port, status}` objects |
+| `GET` | `/api/servers` | List `{name, edition, status}` objects |
 | `POST` | `/api/servers` | Create from `{name, edition, port, worldPath, acceptEula}` |
 | `POST` | `/api/servers/{name}/start` | Run `docker compose up -d` |
 | `POST` | `/api/servers/{name}/stop` | Run `docker compose stop` |

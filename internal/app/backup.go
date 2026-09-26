@@ -246,7 +246,11 @@ func (b *BackupManager) capture(ctx context.Context, name string) (string, error
 	}
 	err := copyBackupTree(filepath.Join(serverDir, "data"), filepath.Join(stage, "data"))
 	if err == nil {
-		err = copyFile(filepath.Join(serverDir, "compose.yaml"), filepath.Join(stage, "compose.yaml"))
+		var composeFile string
+		composeFile, err = b.api.composeFile(name)
+		if err == nil {
+			err = copyFile(composeFile, filepath.Join(stage, filepath.Base(composeFile)))
+		}
 	}
 	if wasRunning {
 		restartErr := b.compose(ctx, name, "up", "-d")
@@ -281,10 +285,17 @@ func copyFile(src, dst string) error {
 	return closeErr
 }
 func (b *BackupManager) compose(parent context.Context, name string, args ...string) error {
+	_, service, err := b.api.minecraftService(name)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
 	defer cancel()
-	command := []string{"compose", "-p", "mcui-" + name, "-f", filepath.Join(b.api.Root, name, "compose.yaml")}
-	command = append(command, args...)
+	command, err := b.api.composeArgs(name)
+	if err != nil {
+		return err
+	}
+	command = append(command, append(args, service)...)
 	out, err := exec.CommandContext(ctx, "docker", command...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("docker compose: %s: %w", strings.TrimSpace(string(out)), err)

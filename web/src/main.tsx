@@ -5,7 +5,7 @@ import axios from 'axios'
 import './style.css'
 
 type Edition = 'bedrock' | 'java'
-type Server = { name: string; edition: Edition; port: number; status: string }
+type Server = { name: string; edition: Edition; status: string }
 type CreateServer = { name: string; edition: Edition; port: number; worldPath: string; acceptEula: boolean }
 type BackupConfig = { configured: boolean; interval: string; destination: string }
 type BackupState = { state: 'idle' | 'queued' | 'capturing' | 'uploading' | 'complete' | 'failed'; startedAt?: string; completedAt?: string; snapshotId?: string; error?: string }
@@ -21,7 +21,7 @@ function ServerCard({ server, backupConfigured }: { server: Server; backupConfig
   const createBackup = useMutation({ mutationFn: async () => (await api.post<BackupState>(`/servers/${server.name}/backup`)).data, onSuccess: async () => { setMessage(''); await qc.invalidateQueries({ queryKey: ['backup', server.name] }) }, onError: e => setMessage(errorMessage(e)) })
   const busy = backup?.state === 'queued' || backup?.state === 'capturing' || backup?.state === 'uploading'
   const backupDescription = backup?.state === 'complete' ? `Last backup ${new Date(backup.completedAt!).toLocaleString()} · ${backup.snapshotId?.slice(0, 12)}` : backup?.state === 'failed' ? `Backup failed: ${backup.error}` : busy ? ({ queued: 'Backup queued', capturing: 'Capturing server data', uploading: 'Uploading to Google Drive' } as Record<string, string>)[backup!.state] : 'No backup created in this session'
-  return <article className="server"><div className="server-main"><div className="server-symbol">{server.edition === 'bedrock' ? 'B' : 'J'}</div><div className="server-info"><h3>{server.name}</h3><p>{server.edition === 'bedrock' ? 'Bedrock · UDP' : 'Java · TCP'} <span>·</span> Port {server.port}</p></div><span className={`status ${server.status}`}>{server.status}</span><button disabled={action.isPending || backup?.state === 'capturing'} onClick={() => action.mutate(server.status === 'running' ? 'stop' : 'start')}>{server.status === 'running' ? 'Stop' : 'Start'}</button></div><div className="backup-row"><div><strong>Google Drive backup</strong><p className={backup?.state === 'failed' ? 'error' : 'backup-detail'}>{backupDescription}</p></div><button className="backup-button" disabled={!backupConfigured || busy || createBackup.isPending} onClick={() => createBackup.mutate()}>Back up now</button></div>{message && <p className="error" role="status">{message}</p>}</article>
+  return <article className="server"><div className="server-main"><div className="server-symbol">{server.edition === 'bedrock' ? 'B' : 'J'}</div><div className="server-info"><h3>{server.name}</h3><p>{server.edition === 'bedrock' ? 'Bedrock · UDP' : 'Java · TCP'}</p></div><span className={`status ${server.status}`}>{server.status}</span><button disabled={action.isPending || backup?.state === 'capturing'} onClick={() => action.mutate(server.status === 'running' ? 'stop' : 'start')}>{server.status === 'running' ? 'Stop' : 'Start'}</button></div><div className="backup-row"><div><strong>Google Drive backup</strong><p className={backup?.state === 'failed' ? 'error' : 'backup-detail'}>{backupDescription}</p></div><button className="backup-button" disabled={!backupConfigured || busy || createBackup.isPending} onClick={() => createBackup.mutate()}>Back up now</button></div>{message && <p className="error" role="status">{message}</p>}</article>
 }
 function App() {
   const qc = useQueryClient()

@@ -16,7 +16,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +24,7 @@ import (
 type Server struct {
 	Name    string `json:"name"`
 	Edition string `json:"edition"`
-	Port    int    `json:"port"`
+	Port    int    `json:"port,omitempty"`
 	Status  string `json:"status"`
 }
 type CreateRequest struct {
@@ -42,7 +41,73 @@ type API struct {
 }
 
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
-var portPattern = regexp.MustCompile(`(?m)^\s*- "?([0-9]+):(?:25565|19132)(?:/udp)?"?\s*$`)
+
+type composeService struct {
+	Image string `json:"image"`
+}
+
+type composeConfig struct {
+	Services map[string]composeService `json:"services"`
+}
+
+func (a *API) composeFile(name string) (string, error) {
+	for _, filename := range []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"} {
+		path := filepath.Join(a.Root, name, filename)
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			return path, nil
+		}
+	}
+	return "", os.ErrNotExist
+}
+
+func (a *API) composeArgs(name string) ([]string, error) {
+	file, err := a.composeFile(name)
+	if err != nil {
+		return nil, err
+	}
+	return []string{"compose", "-p", "mcui-" + name, "-f", file}, nil
+}
+
+func (a *API) minecraftService(name string) (Server, string, error) {
+	args, err := a.composeArgs(name)
+	if err != nil {
+		return Server{}, "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", append(args, "config", "--format", "json")...).Output()
+	if err != nil {
+		return Server{}, "", err
+	}
+	var config composeConfig
+	if err := json.Unmarshal(out, &config); err != nil {
+		return Server{}, "", err
+	}
+	var server Server
+	var serviceName string
+	for service, settings := range config.Services {
+		edition := ""
+		image := strings.SplitN(settings.Image, ":", 2)[0]
+		switch image {
+		case "itzg/minecraft-server":
+			edition = "java"
+		case "itzg/minecraft-bedrock-server":
+			edition = "bedrock"
+		}
+		if edition == "" {
+			continue
+		}
+		if serviceName != "" {
+			return Server{}, "", errors.New("multiple Minecraft services")
+		}
+		serviceName = service
+		server = Server{Name: name, Edition: edition}
+	}
+	if serviceName == "" {
+		return Server{}, "", errors.New("no Minecraft service")
+	}
+	return server, serviceName, nil
+}
 
 func Serve(addr, root string) error {
 	var err error
@@ -143,19 +208,24 @@ func (a *API) action(w http.ResponseWriter, r *http.Request) {
 		bad(w, 409, "Server is being captured for backup")
 		return
 	}
-	if _, err := a.readServer(parts[0]); err != nil {
+	_, service, err := a.minecraftService(parts[0])
+	if err != nil {
 		bad(w, 404, "Server not found")
 		return
 	}
-	args := []string{"-p", "mcui-" + parts[0], "-f", filepath.Join(a.Root, parts[0], "compose.yaml")}
+	args, err := a.composeArgs(parts[0])
+	if err != nil {
+		bad(w, 404, "Server not found")
+		return
+	}
 	if parts[1] == "start" {
-		args = append(args, "up", "-d")
+		args = append(args, "up", "-d", service)
 	} else {
-		args = append(args, "stop")
+		args = append(args, "stop", service)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", append([]string{"compose"}, args...)...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	if err != nil {
 		bad(w, 502, fmt.Sprintf("Docker Compose failed: %s", strings.TrimSpace(string(out))))
 		return
@@ -165,9 +235,17 @@ func (a *API) action(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, s)
 }
 func (a *API) status(parent context.Context, name string) string {
+	_, service, err := a.minecraftService(name)
+	if err != nil {
+		return "unknown"
+	}
+	args, err := a.composeArgs(name)
+	if err != nil {
+		return "unknown"
+	}
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "compose", "-p", "mcui-"+name, "-f", filepath.Join(a.Root, name, "compose.yaml"), "ps", "-q", "mc")
+	cmd := exec.CommandContext(ctx, "docker", append(args, "ps", "-q", service)...)
 	out, err := cmd.Output()
 	if err != nil {
 		return "unknown"
@@ -185,25 +263,8 @@ func (a *API) status(parent context.Context, name string) string {
 	return strings.TrimSpace(string(out))
 }
 func (a *API) readServer(name string) (Server, error) {
-	b, err := os.ReadFile(filepath.Join(a.Root, name, "compose.yaml"))
-	if err != nil {
-		return Server{}, err
-	}
-	data := string(b)
-	edition := ""
-	if strings.Contains(data, "image: itzg/minecraft-server:") {
-		edition = "java"
-	} else if strings.Contains(data, "image: itzg/minecraft-bedrock-server:") {
-		edition = "bedrock"
-	} else {
-		return Server{}, errors.New("unrecognized image")
-	}
-	match := portPattern.FindStringSubmatch(data)
-	if match == nil {
-		return Server{}, errors.New("port missing")
-	}
-	port, _ := strconv.Atoi(match[1])
-	return Server{Name: name, Edition: edition, Port: port}, nil
+	server, _, err := a.minecraftService(name)
+	return server, err
 }
 func (a *API) create(req CreateRequest) error {
 	a.mu.Lock()
@@ -222,19 +283,6 @@ func (a *API) create(req CreateRequest) error {
 	}
 	if req.WorldPath != "" && !filepath.IsAbs(req.WorldPath) {
 		return errors.New("World path must be absolute")
-	}
-	entries, err := os.ReadDir(a.Root)
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		s, err := a.readServer(e.Name())
-		if err == nil && s.Port == req.Port && s.Edition == req.Edition {
-			return errors.New("Port already used by a server of this edition")
-		}
 	}
 	dir := filepath.Join(a.Root, req.Name)
 	if err := os.Mkdir(dir, 0755); err != nil {

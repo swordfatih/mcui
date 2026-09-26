@@ -26,14 +26,30 @@ func TestCreateBedrockAndDiscover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Edition != "bedrock" || got.Port != 19132 {
+	if got.Edition != "bedrock" {
 		t.Fatalf("unexpected server: %+v", got)
 	}
 	if _, err := os.Stat(filepath.Join(a.Root, req.Name, "data", "worlds", "world", "level.dat")); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.create(CreateRequest{Name: "other", Edition: "bedrock", Port: 19132, AcceptEULA: true}); err == nil {
-		t.Fatal("expected duplicate port rejection")
+}
+
+func TestDiscoverExistingComposeWithoutPort(t *testing.T) {
+	a := API{Root: t.TempDir()}
+	dir := filepath.Join(a.Root, "chronicles")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	compose := "services:\n  minecraft:\n    image: itzg/minecraft-server:java21\n    environment:\n      EULA: 'TRUE'\n"
+	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(compose), 0644); err != nil {
+		t.Fatal(err)
+	}
+	server, service, err := a.minecraftService("chronicles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.Edition != "java" || service != "minecraft" || server.Port != 0 {
+		t.Fatalf("unexpected discovery: %+v, %s", server, service)
 	}
 }
 func TestRejectZipTraversal(t *testing.T) {

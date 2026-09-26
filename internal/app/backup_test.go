@@ -36,6 +36,7 @@ case "$1" in
   inspect) echo running ;;
   compose)
     case " $* " in
+      *" config "*) echo '{"services":{"mc":{"image":"itzg/minecraft-bedrock-server:latest"}}}' ;;
       *" ps "*) echo container-id ;;
       *" stop "*) echo stop >> "$MCUI_TEST_OPERATIONS" ;;
       *" up "*) echo up >> "$MCUI_TEST_OPERATIONS" ;;
