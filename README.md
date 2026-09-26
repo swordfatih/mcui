@@ -28,12 +28,13 @@ The root [docker-compose.yaml](docker-compose.yaml) follows the `nginx-proxy` an
 
 ```sh
 cp .env.example .env
-# Edit .env: set DOMAIN, LETSENCRYPT_EMAIL, and MCUI_SERVERS_DIR=$PWD/servers
+# Edit .env: set DOMAIN, LETSENCRYPT_EMAIL, MCUI_SERVERS_DIR=$PWD/servers,
+# and MCUI_HTTP_PASSWORD to a long random password
 mkdir -p "$PWD/servers"
 docker compose up --build -d
 ```
 
-Open `https://<DOMAIN>`. The dashboard container needs the Docker socket to manage the server projects. Restrict access to the dashboard and protect the Docker socket.
+Open `https://<DOMAIN>` and sign in with `MCUI_HTTP_PASSWORD`. MCUI uses a 12-hour session cookie; signing out ends that session. The Docker Compose deployment requires a password. A native run enables the sign-in page when `MCUI_HTTP_PASSWORD` is set. Use HTTPS to protect credentials and sessions. The dashboard container needs the Docker socket to manage the server projects. Restrict access to the dashboard and protect the Docker socket.
 
 ## Google Drive backups
 

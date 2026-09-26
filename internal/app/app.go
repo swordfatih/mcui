@@ -131,7 +131,7 @@ func Serve(addr, root string) error {
 	mux.HandleFunc("/api/servers/", a.action)
 	mux.Handle("/", http.FileServer(http.Dir("web/dist")))
 	log.Printf("mcui listening on %s; servers in %s", addr, root)
-	return http.ListenAndServe(addr, mux)
+	return http.ListenAndServe(addr, newSessionAuth(mux))
 }
 func respond(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
