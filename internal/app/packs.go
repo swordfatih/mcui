@@ -22,6 +22,7 @@ import (
 type packRef struct {
 	PackID  string          `json:"pack_id"`
 	Version json.RawMessage `json:"version"`
+	Subpack string          `json:"subpack,omitempty"`
 }
 type packManifest struct {
 	Header struct {
@@ -43,6 +44,7 @@ type packInfo struct {
 	Order     int             `json:"order"`
 	LoadState string          `json:"loadState"`
 	BuiltIn   bool            `json:"builtIn"`
+	HasIcon   bool            `json:"hasIcon"`
 }
 type packListing struct {
 	Packs   []packInfo `json:"packs"`
@@ -133,13 +135,65 @@ func readPackManifest(path string) (packManifest, error) {
 	if err != nil {
 		return manifest, err
 	}
-	if err := json.Unmarshal(content, &manifest); err != nil {
+	if err := json.Unmarshal(stripJSONComments(content), &manifest); err != nil {
 		return manifest, err
 	}
 	if !packUUID.MatchString(manifest.Header.UUID) || len(manifest.Header.Version) == 0 || len(manifest.Modules) == 0 {
 		return manifest, errors.New("Invalid pack manifest")
 	}
 	return manifest, nil
+}
+func stripJSONComments(content []byte) []byte {
+	clean := append([]byte(nil), content...)
+	inString, escaped := false, false
+	for i := 0; i < len(clean); i++ {
+		if inString {
+			if escaped {
+				escaped = false
+			} else if clean[i] == '\\' {
+				escaped = true
+			} else if clean[i] == '"' {
+				inString = false
+			}
+			continue
+		}
+		if clean[i] == '"' {
+			inString = true
+			continue
+		}
+		if clean[i] != '/' || i+1 >= len(clean) {
+			continue
+		}
+		if clean[i+1] == '/' {
+			for i < len(clean) && clean[i] != '\n' {
+				clean[i] = ' '
+				i++
+			}
+		} else if clean[i+1] == '*' {
+			clean[i], clean[i+1] = ' ', ' '
+			i += 2
+			for i+1 < len(clean) && !(clean[i] == '*' && clean[i+1] == '/') {
+				if clean[i] != '\n' {
+					clean[i] = ' '
+				}
+				i++
+			}
+			if i+1 < len(clean) {
+				clean[i], clean[i+1] = ' ', ' '
+				i++
+			}
+		}
+	}
+	return clean
+}
+func builtInPack(kind, folder string) bool {
+	if folder == "vanilla" || strings.HasPrefix(folder, "vanilla_") || folder == "chemistry" || strings.HasPrefix(folder, "chemistry_") || folder == "editor" {
+		return true
+	}
+	if kind == "behavior" {
+		return strings.HasPrefix(folder, "experimental_") || folder == "server_library" || folder == "server_ui_library" || folder == "server_editor_library"
+	}
+	return false
 }
 func resolvedPackName(folder, key string) string {
 	if key == "" {
@@ -166,18 +220,49 @@ func resolvedPackName(folder, key string) string {
 	}
 	return filepath.Base(folder)
 }
-func builtInPack(name, folder string) bool {
-	lowerName, lowerFolder := strings.ToLower(name), strings.ToLower(folder)
-	return strings.HasPrefix(lowerName, "resourcepack.vanilla") || strings.HasPrefix(lowerName, "resourcepack.editor") || strings.HasPrefix(lowerName, "@minecraft/") || strings.HasPrefix(lowerFolder, "vanilla") || strings.HasPrefix(lowerFolder, "editor")
-}
 func samePackVersion(a, b json.RawMessage) bool {
 	var left, right any
 	if json.Unmarshal(a, &left) != nil || json.Unmarshal(b, &right) != nil {
 		return false
 	}
-	encodedLeft, _ := json.Marshal(left)
-	encodedRight, _ := json.Marshal(right)
-	return string(encodedLeft) == string(encodedRight)
+	versionText := func(value any) string {
+		switch value := value.(type) {
+		case string:
+			return value
+		case []any:
+			parts := make([]string, len(value))
+			for i, part := range value {
+				parts[i] = fmt.Sprint(part)
+			}
+			return strings.Join(parts, ".")
+		default:
+			encoded, _ := json.Marshal(value)
+			return string(encoded)
+		}
+	}
+	return versionText(left) == versionText(right)
+}
+func applyPackRefs(packs []packInfo, first int, refs []packRef) {
+	for order, ref := range refs {
+		candidates := []int{}
+		chosen := -1
+		for i := first; i < len(packs); i++ {
+			if !strings.EqualFold(packs[i].UUID, ref.PackID) {
+				continue
+			}
+			candidates = append(candidates, i)
+			if samePackVersion(packs[i].Version, ref.Version) {
+				chosen = i
+			}
+		}
+		if chosen < 0 && len(candidates) == 1 {
+			chosen = candidates[0]
+		}
+		if chosen >= 0 {
+			packs[chosen].Active = true
+			packs[chosen].Order = order
+		}
+	}
 }
 func packKind(manifest packManifest) string {
 	for _, module := range manifest.Modules {
@@ -214,6 +299,7 @@ func (a *API) listPacks(name string) (packListing, error) {
 		if err != nil {
 			return result, err
 		}
+		first := len(result.Packs)
 		for _, entry := range entries {
 			if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 				continue
@@ -223,16 +309,13 @@ func (a *API) listPacks(name string) (packListing, error) {
 				continue
 			}
 			folder := filepath.Join(data, packFolder(kind), entry.Name())
-			info := packInfo{ID: packID(kind, entry.Name()), Name: resolvedPackName(folder, manifest.Header.Name), UUID: manifest.Header.UUID, Version: manifest.Header.Version, Kind: kind, Order: -1, LoadState: "unverified", BuiltIn: builtInPack(manifest.Header.Name, entry.Name())}
-			for i, ref := range refs {
-				if strings.EqualFold(ref.PackID, info.UUID) && samePackVersion(ref.Version, info.Version) {
-					info.Active = true
-					info.Order = i
-					break
-				}
+			info := packInfo{ID: packID(kind, entry.Name()), Name: resolvedPackName(folder, manifest.Header.Name), UUID: manifest.Header.UUID, Version: manifest.Header.Version, Kind: kind, Order: -1, LoadState: "unverified", BuiltIn: builtInPack(kind, entry.Name())}
+			if icon, err := os.Lstat(filepath.Join(folder, "pack_icon.png")); err == nil && icon.Mode().IsRegular() {
+				info.HasIcon = true
 			}
 			result.Packs = append(result.Packs, info)
 		}
+		applyPackRefs(result.Packs, first, refs)
 	}
 	if result.Running {
 		_, service, _ := a.minecraftService(name)
@@ -327,6 +410,21 @@ func (a *API) packsHandler(w http.ResponseWriter, r *http.Request, name string) 
 		}{{"resource", request.Resource}, {"behavior", request.Behavior}} {
 			seen := map[string]bool{}
 			refs := []packRef{}
+			requested := map[string]bool{}
+			for _, id := range item.ids {
+				requested[id] = true
+			}
+			for _, pack := range listing.Packs {
+				if pack.Kind == item.kind && pack.BuiltIn && requested[pack.ID] != pack.Active {
+					bad(w, 403, "Bedrock-provided packs are read-only")
+					return
+				}
+			}
+			existing, err := readPackRefs(filepath.Join(world, packFile(item.kind)))
+			if err != nil {
+				bad(w, 400, err.Error())
+				return
+			}
 			for _, id := range item.ids {
 				if seen[id] {
 					bad(w, 400, "Duplicate pack in order")
@@ -336,7 +434,16 @@ func (a *API) packsHandler(w http.ResponseWriter, r *http.Request, name string) 
 				found := false
 				for _, pack := range listing.Packs {
 					if pack.ID == id && pack.Kind == item.kind {
-						refs = append(refs, packRef{PackID: pack.UUID, Version: pack.Version})
+						ref := packRef{PackID: pack.UUID, Version: pack.Version}
+						if pack.Active {
+							for _, previous := range existing {
+								if strings.EqualFold(previous.PackID, pack.UUID) {
+									ref = previous
+									break
+								}
+							}
+						}
+						refs = append(refs, ref)
 						found = true
 						break
 					}

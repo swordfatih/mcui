@@ -208,6 +208,7 @@ func Serve(addr, root string) error {
 	mux.HandleFunc("/api/backups/config", a.backupConfigHandler)
 	mux.HandleFunc("/api/servers/", a.action)
 	mux.HandleFunc("/api/server-details/", a.serverDetails)
+	mux.HandleFunc("/api/server-packs/", a.serverPack)
 	mux.HandleFunc("/servers/", serverPageHandler("web/dist/index.html"))
 	mux.Handle("/", http.FileServer(http.Dir("web/dist")))
 	log.Printf("mcui listening on %s; servers in %s", addr, root)
@@ -215,8 +216,9 @@ func Serve(addr, root string) error {
 }
 func serverPageHandler(index string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		name := strings.TrimPrefix(r.URL.Path, "/servers/")
-		if (r.Method != http.MethodGet && r.Method != http.MethodHead) || !safeFolderName(name) {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/servers/"), "/")
+		valid := len(parts) == 1 && safeFolderName(parts[0]) || len(parts) == 4 && safeFolderName(parts[0]) && parts[1] == "packs" && (parts[2] == "resource" || parts[2] == "behavior") && safeFolderName(parts[3])
+		if (r.Method != http.MethodGet && r.Method != http.MethodHead) || !valid {
 			http.NotFound(w, r)
 			return
 		}

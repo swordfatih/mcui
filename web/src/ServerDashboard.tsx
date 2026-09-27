@@ -48,7 +48,7 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
 }) {
   const qc = useQueryClient()
   const key = encodeURIComponent(server.name)
-  const [tab, setTab] = useState<Tab>('overview')
+  const [tab, setTab] = useState<Tab>(() => new URLSearchParams(window.location.search).get('tab') === 'resources' && server.edition === 'bedrock' ? 'resources' : 'overview')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
