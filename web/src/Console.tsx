@@ -134,8 +134,8 @@ export default function Console({ server }: { server: Server }) {
               setFollowLogs(element.scrollHeight - element.scrollTop - element.clientHeight < 48)
             }}
           >{logs.data?.logs || (logs.isLoading ? 'Loading server output…' : 'No log output yet.')}</pre>}
+        {!logs.isError && !followLogs && <button className="console-follow" type="button" onClick={() => setFollowLogs(true)} aria-label="Jump to latest log output">↓ Latest</button>}
       </div>
-      {!followLogs && <button className="console-follow" type="button" onClick={() => setFollowLogs(true)}>Jump to latest ↓</button>}
     </section>
   </div>
 }

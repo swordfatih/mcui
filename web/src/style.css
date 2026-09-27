@@ -813,6 +813,7 @@ footer span {
 }
 
 .console-terminal {
+  position: relative;
   overflow: hidden;
   border: 1px solid #405443;
   border-radius: 12px;
@@ -878,7 +879,23 @@ footer span {
 }
 
 .console-follow {
-  justify-self: end;
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  z-index: 1;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #344d36;
+  box-shadow: 0 4px 16px #0008;
+}
+
+.console-follow:hover {
+  background: #456449;
+}
+
+.console-follow:focus-visible {
+  outline: 2px solid #b7e98e;
+  outline-offset: 2px;
 }
 
 @media (max-width: 600px) {
