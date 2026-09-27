@@ -316,6 +316,13 @@ func (a *API) listPacks(name string) (packListing, error) {
 			result.Packs = append(result.Packs, info)
 		}
 		applyPackRefs(result.Packs, first, refs)
+		if kind == "resource" {
+			for i := first; i < len(result.Packs); i++ {
+				if result.Packs[i].Active {
+					result.Packs[i].LoadState = "Selected in world JSON"
+				}
+			}
+		}
 	}
 	if result.Running {
 		_, service, _ := a.minecraftService(name)
@@ -328,7 +335,7 @@ func (a *API) listPacks(name string) (packListing, error) {
 			stack := latestPackStack(logs)
 			for i := range result.Packs {
 				p := &result.Packs[i]
-				if !p.Active {
+				if !p.Active || p.Kind != "behavior" {
 					continue
 				}
 				if strings.Contains(strings.ToLower(stack), strings.ToLower(p.UUID)) {

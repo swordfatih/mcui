@@ -590,6 +590,10 @@ footer span {
 .pack-disclosure summary span { float: right; color: #a5b3a3; font-weight: 400; }
 .pack-disclosure .pack-list { margin-top: 14px; }
 .pack-disclosure .muted { margin: 12px 0 0; }
+.pack-family { display: grid; gap: 8px; min-width: 0; }
+.pack-version-list { margin-left: 22px; padding-left: 14px; border-left: 2px solid #49644a; }
+.pack-version-list summary { width: fit-content; padding: 7px 0; color: #bed5b4; font-size: 12px; font-weight: 700; cursor: pointer; }
+.pack-version-list .pack-list { margin: 5px 0 0; }
 .pack-save-row { display: flex; align-items: center; gap: 16px; }
 .pack-save-row p { max-width: 580px; margin: 0; color: #a5b3a3; font-size: 12px; line-height: 1.5; }
 .pack-source-tabs { display: inline-flex; padding: 4px; gap: 4px; border: 1px solid #405443; border-radius: 10px; background: #17251b; margin: 8px 0 18px; }
@@ -604,7 +608,7 @@ footer span {
 .pack-url-label { display: grid; gap: 8px; width: 100%; }
 .pack-url-label input { width: 100%; min-width: 0; }
 .pack-url-label small { color: #a5b3a3; }
-@media(max-width:600px) { .pack-card { flex-wrap: wrap; } .pack-copy { flex-basis: calc(100% - 95px); } .pack-card-actions { width: 100%; display: flex; justify-content: space-between; } .pack-save-row { align-items: flex-start; flex-direction: column; } .pack-detail-hero { align-items: flex-start; } .pack-detail-icon { width: 64px; height: 64px; } .pack-detail-info dl div { grid-template-columns: 1fr; gap: 4px; } }
+@media(max-width:600px) { .pack-card { flex-wrap: wrap; } .pack-copy { flex-basis: calc(100% - 95px); } .pack-card-actions { width: 100%; display: flex; justify-content: space-between; } .pack-version-list { margin-left: 10px; padding-left: 10px; } .pack-save-row { align-items: flex-start; flex-direction: column; } .pack-detail-hero { align-items: flex-start; } .pack-detail-icon { width: 64px; height: 64px; } .pack-detail-info dl div { grid-template-columns: 1fr; gap: 4px; } }
 .dashboard { padding-top: 26px; }
 .dashboard-hero { margin: 22px 0 0; border: 1px solid #456449; border-radius: 20px; padding: 30px; background: radial-gradient(circle at 96% 0%, #395537 0, transparent 35%), linear-gradient(135deg,#253a29,#1a291e); }
 .dashboard-heading { margin: 0; display: flex; align-items: center; gap: 17px; }

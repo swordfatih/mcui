@@ -19,7 +19,7 @@ function PackCard({ server, pack, active, running, onToggle, dragHandle }: { ser
   return <article ref={dragHandle?.setNodeRef} style={dragHandle ? { transform: CSS.Transform.toString(dragHandle.transform), transition: dragHandle.transition } : undefined} className={`pack-card ${active ? 'pack-active' : ''} ${dragHandle?.isDragging ? 'pack-dragging' : ''}`}>
     {dragHandle && <button className="pack-handle" type="button" {...dragHandle.attributes} {...dragHandle.listeners} aria-label={`Drag ${pack.name} to reorder`} title="Drag to reorder">⠿</button>}
     <span className="pack-icon" aria-hidden="true">{pack.hasIcon ? <img src={packIconPath(server, pack)} alt="" /> : pack.kind === 'resource' ? 'R' : 'B'}</span>
-    <div className="pack-copy"><strong>{pack.name}</strong><small>{pack.uuid} · v{Array.isArray(pack.version) ? pack.version.join('.') : pack.version}</small>{active && <span className={`pack-load ${pack.loadState === 'seen in Pack Stack' ? 'loaded' : ''}`}>{pack.loadState}{!running ? ' · server stopped' : ''}</span>}</div>
+    <div className="pack-copy"><strong>{pack.name}</strong><small>{pack.uuid} · v{Array.isArray(pack.version) ? pack.version.join('.') : pack.version}</small>{active && <span className={`pack-load ${pack.loadState === 'seen in Pack Stack' || pack.loadState === 'Selected in world JSON' ? 'loaded' : ''}`}>{pack.loadState}{pack.kind === 'behavior' && !running ? ' · server stopped' : ''}</span>}</div>
     {pack.builtIn ? <span className="pack-system-state">{active ? 'Referenced by world' : 'Bedrock-provided'}</span> : <div className="pack-card-actions"><button type="button" className={`pack-switch ${active ? 'selected' : ''}`} role="switch" aria-checked={active} aria-label={`${active ? 'Deactivate' : 'Activate'} ${pack.name}`} onClick={onToggle}><i aria-hidden="true" /><span>{active ? 'Active' : 'Off'}</span></button><Link className="pack-open" to={packDetailPath(server, pack)} aria-label={`Open ${pack.name} details`}>Details →</Link></div>}
   </article>
 }
@@ -27,6 +27,26 @@ function PackCard({ server, pack, active, running, onToggle, dragHandle }: { ser
 function SortablePack({ server, pack, running, onToggle }: { server: string; pack: Pack; running: boolean; onToggle: () => void }) {
   const dragHandle = useSortable({ id: pack.id })
   return <PackCard server={server} pack={pack} active running={running} onToggle={onToggle} dragHandle={dragHandle} />
+}
+
+function VersionedPackList({ server, packs, running, activeIDs, onToggle }: { server: string; packs: Pack[]; running: boolean; activeIDs: string[]; onToggle?: (pack: Pack) => void }) {
+  const folder = (pack: Pack) => pack.id.split('/')[1]
+  const bases = new Map(packs.map(pack => [folder(pack).toLowerCase(), pack]))
+  const versions = new Map<string, Pack[]>()
+  const children = new Set<string>()
+  for (const pack of packs) {
+    const match = /^(.+?)_(\d+(?:\.\d+)+)$/i.exec(folder(pack))
+    const base = match && bases.get(match[1].toLowerCase())
+    if (!base) continue
+    const siblings = versions.get(base.id) || []
+    siblings.push(pack)
+    versions.set(base.id, siblings)
+    children.add(pack.id)
+  }
+  return <div className="pack-list">{packs.filter(pack => !children.has(pack.id)).map(pack => {
+    const siblings = versions.get(pack.id)?.sort((a, b) => folder(a).localeCompare(folder(b), undefined, { numeric: true })) || []
+    return <div className="pack-family" key={pack.id}><PackCard server={server} pack={pack} active={activeIDs.includes(pack.id)} running={running} onToggle={onToggle ? () => onToggle(pack) : undefined} />{siblings.length > 0 && <details className="pack-version-list"><summary>{siblings.length} version{siblings.length === 1 ? '' : 's'} of {folder(pack)}</summary><div className="pack-list">{siblings.map(version => <PackCard key={version.id} server={server} pack={version} active={activeIDs.includes(version.id)} running={running} onToggle={onToggle ? () => onToggle(version) : undefined} />)}</div></details>}</div>
+  })}</div>
 }
 
 export default function Packs({ name }: { name: string }) {
@@ -76,7 +96,7 @@ export default function Packs({ name }: { name: string }) {
     <div className="packs-heading"><p className="kicker">BEDROCK ADD-ONS</p><h2>Resource & behavior packs</h2><p className="muted">Drag active packs to set their order. Handles work with a mouse, touch, or keyboard.</p></div>
     {notice && <p className="notice" role="status">{notice}</p>}{error && <p className="error" role="alert">{error}</p>}
     {listing.isLoading && <p className="muted">Loading packs…</p>}{listing.isError && <p className="error" role="alert">{message(listing.error)}</p>}
-    {listing.data && <><p className="muted pack-world">World: {listing.data.world} · Load status comes from recent Pack Stack logs.</p>
+    {listing.data && <><p className="muted pack-world">World: {listing.data.world} · Resource selection comes from world JSON; behavior pack load status comes from recent Pack Stack logs.</p>
       {(['resource', 'behavior'] as const).map(kind => {
         const packs = listing.data!.packs.filter(pack => pack.kind === kind)
         const byID = new Map(packs.map(pack => [pack.id, pack]))
@@ -85,8 +105,8 @@ export default function Packs({ name }: { name: string }) {
         const builtIn = packs.filter(pack => pack.builtIn).sort((a, b) => a.name.localeCompare(b.name))
         return <section className="panel pack-section" key={kind}><div className="pack-section-heading"><h3>{kind === 'resource' ? 'Resource packs' : 'Behavior packs'}</h3><span>{active.length} active</span></div>
           {active.length ? <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={event => reorder(kind, event)}><SortableContext items={active.map(pack => pack.id)} strategy={verticalListSortingStrategy}><div className="pack-list">{active.map(pack => <SortablePack key={pack.id} server={name} pack={pack} running={listing.data!.running} onToggle={() => toggle(pack)} />)}</div></SortableContext></DndContext> : <p className="muted">No active add-ons.</p>}
-          {inactive.length > 0 && <details className="pack-disclosure"><summary>Inactive packs <span>{inactive.length}</span></summary><div className="pack-list">{inactive.map(pack => <PackCard key={pack.id} server={name} pack={pack} active={false} running={listing.data!.running} onToggle={() => toggle(pack)} />)}</div></details>}
-          {builtIn.length > 0 && <details className="pack-disclosure"><summary>Bedrock-provided packs <span>{builtIn.length}</span></summary><p className="muted">{kind === 'resource' ? 'Vanilla, chemistry, and editor packs' : 'Vanilla, chemistry, editor, experimental, and server library packs'} supplied with Bedrock.</p><div className="pack-list">{builtIn.map(pack => <PackCard key={pack.id} server={name} pack={pack} active={current[kind].includes(pack.id)} running={listing.data!.running} />)}</div></details>}
+          {inactive.length > 0 && <details className="pack-disclosure"><summary>Inactive packs <span>{inactive.length}</span></summary><VersionedPackList server={name} packs={inactive} running={listing.data!.running} activeIDs={current[kind]} onToggle={toggle} /></details>}
+          {builtIn.length > 0 && <details className="pack-disclosure"><summary>Bedrock-provided packs <span>{builtIn.length}</span></summary><p className="muted">{kind === 'resource' ? 'Vanilla, chemistry, and editor packs' : 'Vanilla, chemistry, editor, experimental, and server library packs'} supplied with Bedrock.</p><VersionedPackList server={name} packs={builtIn} running={listing.data!.running} activeIDs={current[kind]} /></details>}
         </section>
       })}
       <div className="pack-save-row"><button className="primary" type="button" disabled={save.isPending || !dirty} onClick={() => save.mutate(current)}>{save.isPending ? 'Saving…' : 'Save changes'}</button><p role="status">{dirty ? 'Unsaved changes. ' : ''}Saving writes activation and order to the world’s pack JSON files. It does not restart the server; restart it to apply changes.</p></div>
