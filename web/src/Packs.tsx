@@ -9,6 +9,7 @@ import { Link } from 'react-router'
 export type Pack = { id: string; name: string; uuid: string; version: number[] | string; kind: 'resource' | 'behavior'; active: boolean; order: number; loadState: string; builtIn: boolean; hasIcon: boolean }
 type Listing = { packs: Pack[]; world: string; running: boolean }
 type Order = { resource: string[]; behavior: string[] }
+type UpdatePreview = { revision: string; updates: { kind: string; name: string; from: string; to: string; disabled: number; missing: number }[]; warnings: string[] }
 const api = axios.create({ baseURL: '/api' })
 const message = (error: unknown) => axios.isAxiosError(error) ? error.response?.data?.error || error.message : String(error)
 
@@ -57,6 +58,8 @@ export default function Packs({ name }: { name: string }) {
   const [file, setFile] = useState<File | null>(null)
   const [url, setURL] = useState('')
   const [source, setSource] = useState<'file' | 'url'>('file')
+  const [mode, setMode] = useState<'install' | 'update'>('install')
+  const [pendingUpdate, setPendingUpdate] = useState<UpdatePreview | null>(null)
   const [draggingFile, setDraggingFile] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -67,10 +70,13 @@ export default function Packs({ name }: { name: string }) {
     setOrder({ resource: selected('resource'), behavior: selected('behavior') })
   }, [listing.data, touched])
   const save = useMutation({ mutationFn: async (value: Order) => (await api.put(`/server-details/${key}/packs`, value)).data, onSuccess: async () => { setNotice('Saved to the world pack JSON files. Restart the server to apply changes.'); setError(''); await qc.invalidateQueries({ queryKey: ['packs', key] }); setTouched(false) }, onError: err => setError(message(err)) })
-  const upload = useMutation({ mutationFn: async () => {
-    if (source === 'file' && file) { const body = new FormData(); body.append('file', file); return (await api.post(`/server-details/${key}/packs`, body)).data }
-    return (await api.post(`/server-details/${key}/packs`, { url })).data
-  }, onSuccess: async (data: { installed: number }) => { setNotice(`Installed ${data.installed} pack${data.installed === 1 ? '' : 's'}. Activate below, save, then restart the server.`); setError(''); setFile(null); setURL(''); await qc.invalidateQueries({ queryKey: ['packs', key] }); setTouched(false) }, onError: err => setError(message(err)) })
+  const sendArchive = async (preview = false, expectedHash = '') => {
+    const params = mode === 'update' ? { mode: 'update', ...(preview ? { preview: '1' } : { expectedHash }) } : {}
+    if (source === 'file' && file) { const body = new FormData(); body.append('file', file); return (await api.post(`/server-details/${key}/packs`, body, { params })).data }
+    return (await api.post(`/server-details/${key}/packs`, { url }, { params })).data
+  }
+  const inspectUpdate = useMutation({ mutationFn: async () => await sendArchive(true) as UpdatePreview, onSuccess: preview => { setPendingUpdate(preview); setError('') }, onError: err => setError(message(err)) })
+  const upload = useMutation({ mutationFn: async () => await sendArchive(false, pendingUpdate?.revision), onSuccess: async (data: { installed?: number; updated?: number; warnings?: string[] }) => { setNotice(mode === 'update' ? `Updated ${data.updated} pack${data.updated === 1 ? '' : 's'}. Disabled assets were reapplied; restart the server.` : `Installed ${data.installed} pack${data.installed === 1 ? '' : 's'}. Activate below, save, then restart the server.`); setError(''); setFile(null); setURL(''); setPendingUpdate(null); await Promise.all([qc.invalidateQueries({ queryKey: ['packs', key] }), qc.invalidateQueries({ queryKey: ['pack-assets', name] })]); setTouched(false) }, onError: err => { setPendingUpdate(null); setError(message(err)) } })
   const current = order || { resource: [], behavior: [] }
   const saved = (kind: Pack['kind']) => listing.data?.packs.filter(p => p.kind === kind && p.active).sort((a, b) => a.order - b.order).map(p => p.id) || []
   const dirty = (['resource', 'behavior'] as const).some(kind => JSON.stringify(current[kind]) !== JSON.stringify(saved(kind)))
@@ -91,7 +97,7 @@ export default function Packs({ name }: { name: string }) {
     change({ ...current, [pack.kind]: ids.includes(pack.id) ? ids.filter(id => id !== pack.id) : [...ids, pack.id] })
   }
   function dropFile(event: DragEvent<HTMLElement>) { event.preventDefault(); setDraggingFile(false); if (event.dataTransfer.files[0]) setFile(event.dataTransfer.files[0]) }
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); upload.mutate() }
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (mode === 'update') inspectUpdate.mutate(); else upload.mutate() }
   return <section className="packs-page">
     <div className="packs-heading"><p className="kicker">BEDROCK ADD-ONS</p><h2>Resource & behavior packs</h2><p className="muted">Drag active packs to set their order. Handles work with a mouse, touch, or keyboard.</p></div>
     {notice && <p className="notice" role="status">{notice}</p>}{error && <p className="error" role="alert">{error}</p>}
@@ -111,10 +117,12 @@ export default function Packs({ name }: { name: string }) {
       })}
       <div className="pack-save-row"><button className="primary" type="button" disabled={save.isPending || !dirty} onClick={() => save.mutate(current)}>{save.isPending ? 'Saving…' : 'Save changes'}</button><p role="status">{dirty ? 'Unsaved changes. ' : ''}Saving writes activation and order to the world’s pack JSON files. It does not restart the server; restart it to apply changes.</p></div>
     </>}
-    <section className="panel pack-section pack-install"><h3>Add packs</h3><p className="muted">Install one or more packs from a local archive or a public HTTPS link.</p><div className="pack-source-tabs" role="group" aria-label="Pack source"><button type="button" className={source === 'file' ? 'selected' : ''} onClick={() => setSource('file')}>Upload file</button><button type="button" className={source === 'url' ? 'selected' : ''} onClick={() => setSource('url')}>Download URL</button></div><form onSubmit={submit}>
+    <section className="panel pack-section pack-install"><h3>Pack archives</h3><p className="muted">Install new packs or update installed packs from an MCADDON, MCPACK, ZIP, tar.gz, or tgz archive. Updates match each pack by manifest UUID.</p><div className="pack-source-tabs" role="group" aria-label="Pack action"><button type="button" className={mode === 'install' ? 'selected' : ''} onClick={() => { setMode('install'); setPendingUpdate(null) }}>Install new</button><button type="button" className={mode === 'update' ? 'selected' : ''} onClick={() => { setMode('update'); setPendingUpdate(null) }}>Update installed</button></div><div className="pack-source-tabs" role="group" aria-label="Pack source"><button type="button" className={source === 'file' ? 'selected' : ''} onClick={() => { setSource('file'); setPendingUpdate(null) }}>Upload file</button><button type="button" className={source === 'url' ? 'selected' : ''} onClick={() => { setSource('url'); setPendingUpdate(null) }}>Download URL</button></div><form onSubmit={submit}>
       {source === 'file' ? <label className={`pack-dropzone ${draggingFile ? 'dragging' : ''}`} onDragEnter={event => { event.preventDefault(); setDraggingFile(true) }} onDragOver={event => event.preventDefault()} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDraggingFile(false) }} onDrop={dropFile}><input type="file" accept=".zip,.mcaddon,.mcpack,.tar.gz,.tgz" onChange={event => setFile(event.target.files?.[0] || null)} /><span className="pack-upload-icon" aria-hidden="true">↑</span><strong>{file ? file.name : 'Drop an archive here'}</strong><small>{file ? 'Click to choose a different file' : 'or click to choose a file · ZIP, MCADDON, MCPACK, tar.gz, tgz'}</small></label>
-        : <label className="pack-url-label">Direct download link<input type="url" required placeholder="https://example.com/addon.mcaddon" value={url} onChange={event => setURL(event.target.value)} /><small>Public HTTPS links only. The archive is removed after installation.</small></label>}
-      <button className="primary" disabled={upload.isPending || (source === 'file' ? !file : !url)}>{upload.isPending ? 'Installing…' : 'Install packs'}</button>
+        : <label className="pack-url-label">Direct download link<input type="url" required placeholder="https://example.com/addon.mcaddon" value={url} onChange={event => setURL(event.target.value)} /><small>Public HTTPS links only. The archive is removed after processing.</small></label>}
+      {mode === 'update' && <small>Stop the server first. Each incoming pack must have the same UUID and a higher version than one installed pack. A review will show what will be replaced and how many disabled assets carry over.</small>}
+      <button className="primary" disabled={upload.isPending || inspectUpdate.isPending || (mode === 'update' && listing.data?.running) || (source === 'file' ? !file : !url)}>{inspectUpdate.isPending ? 'Reviewing…' : mode === 'update' ? 'Review update' : upload.isPending ? 'Installing…' : 'Install packs'}</button>
     </form></section>
+    {pendingUpdate && <div className="files-dialog-backdrop" role="presentation"><section className="files-dialog panel" role="dialog" aria-modal="true" aria-label="Review pack update"><h3>Update {pendingUpdate.updates.length} pack{pendingUpdate.updates.length === 1 ? '' : 's'}?</h3><p>The installed folders and world activation order stay in place. MCUI will apply disabled asset paths to the new files.</p><ul>{pendingUpdate.updates.map(item => <li key={`${item.kind}-${item.name}`}><strong>{item.name}</strong> ({item.kind}) · {item.from} → {item.to} · {item.disabled} disabled asset{item.disabled === 1 ? '' : 's'}{item.missing > 0 ? ` · ${item.missing} absent in new version` : ''}</li>)}</ul>{pendingUpdate.warnings.map((warning, index) => <small key={index}>Review: {warning}</small>)}<div className="files-dialog-actions"><button type="button" className="secondary-action" onClick={() => setPendingUpdate(null)}>Cancel</button><button type="button" className="primary" disabled={upload.isPending} onClick={() => upload.mutate()}>{upload.isPending ? 'Updating…' : 'Update packs'}</button></div></section></div>}
   </section>
 }

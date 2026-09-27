@@ -470,7 +470,7 @@ func (a *API) packsHandler(w http.ResponseWriter, r *http.Request, name string) 
 		bad(w, 405, "Method not allowed")
 		return
 	}
-	data, _, err := a.packPaths(name)
+	data, world, err := a.packPaths(name)
 	if err != nil {
 		bad(w, 400, err.Error())
 		return
@@ -480,7 +480,12 @@ func (a *API) packsHandler(w http.ResponseWriter, r *http.Request, name string) 
 		bad(w, 500, err.Error())
 		return
 	}
-	defer os.RemoveAll(stage)
+	preserveStage := false
+	defer func() {
+		if !preserveStage {
+			_ = os.RemoveAll(stage)
+		}
+	}()
 	var source io.Reader
 	var filename string
 	var closeSource io.Closer
@@ -604,6 +609,55 @@ func (a *API) packsHandler(w http.ResponseWriter, r *http.Request, name string) 
 	listing, err := a.listPacks(name)
 	if err != nil {
 		bad(w, 400, err.Error())
+		return
+	}
+	if r.URL.Query().Get("mode") == "update" {
+		if a.status(r.Context(), name) != "stopped" {
+			bad(w, 409, "Stop the server before updating packs")
+			return
+		}
+		archiveHash, err := assetHash(archive)
+		if err != nil {
+			bad(w, 500, err.Error())
+			return
+		}
+		updates, cleanup, err := preparePackUpdates(a, name, data, listing, candidates)
+		if err != nil {
+			bad(w, 409, err.Error())
+			return
+		}
+		preserveMeta := false
+		defer func() {
+			if !preserveMeta {
+				cleanup()
+			}
+		}()
+		revision, err := packUpdateRevision(archiveHash, updates, world)
+		if err != nil {
+			bad(w, 409, err.Error())
+			return
+		}
+		preview := packUpdatePreview{Revision: revision, Updates: []packUpdateSummary{}, Warnings: []string{}}
+		for _, item := range updates {
+			preview.Updates = append(preview.Updates, item.summary)
+			preview.Warnings = append(preview.Warnings, item.warnings...)
+		}
+		if r.URL.Query().Get("preview") == "1" {
+			respond(w, 200, preview)
+			return
+		}
+		if r.URL.Query().Get("expectedHash") != revision {
+			bad(w, 409, "Pack data or archive changed since review; review the update again")
+			return
+		}
+		if err := applyPackUpdates(world, stage, updates); err != nil {
+			if errors.Is(err, errPackRollback) {
+				preserveStage, preserveMeta = true, true
+			}
+			bad(w, 500, err.Error())
+			return
+		}
+		respond(w, 200, map[string]any{"updated": len(updates), "warnings": preview.Warnings})
 		return
 	}
 	type install struct{ source, target string }
