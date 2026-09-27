@@ -23,7 +23,7 @@ func TestPackDetailIconAndDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	const uuid = "2cf066eb-1254-4b7d-affb-80fe3216b18c"
-	manifest := `{"header":{"name":"Custom","uuid":"` + uuid + `","version":[1,1,31]},"modules":[{"type":"resources"}]}`
+	manifest := `{"header":{"name":"Custom","uuid":"` + uuid + `","version":[1,1,31]},"modules":[{"type":"resources"}],"subpacks":[{"folder_name":"SP2","name":"Fancy"}]}`
 	if err := os.WriteFile(filepath.Join(pack, "manifest.json"), []byte(manifest), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -60,6 +60,64 @@ func TestPackDetailIconAndDelete(t *testing.T) {
 	a.serverPack(icon, httptest.NewRequest("GET", base+"/icon", nil))
 	if icon.Code != 200 || icon.Body.String() != "icon" {
 		t.Fatalf("icon: %d %s", icon.Code, icon.Body.String())
+	}
+	layer := filepath.Join(pack, "subpacks", "SP2")
+	if err := os.MkdirAll(filepath.Join(layer, "textures", "blocks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	texture := filepath.Join(layer, "textures", "blocks", "sample.png")
+	if err := os.WriteFile(texture, []byte("sample image"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	atlas := filepath.Join(layer, "textures", "terrain_texture.json")
+	if err := os.WriteFile(atlas, []byte(`{"texture_data":{"sample":{"textures":"textures/blocks/sample"},"sample_extra":{"textures":"textures/blocks/sample_extra"}}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(layer, "blocks.json"), []byte(`{"format_version":"1.19.30","demo:block":{"textures":"sample"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	assetURL := "/api/pack-assets/server/resource/custom"
+	assetList := httptest.NewRecorder()
+	a.packAssets(assetList, httptest.NewRequest("GET", assetURL, nil))
+	if assetList.Code != 200 || !strings.Contains(assetList.Body.String(), `"id":"SP2"`) || !strings.Contains(assetList.Body.String(), `"selected":true`) {
+		t.Fatalf("assets: %d %s", assetList.Code, assetList.Body.String())
+	}
+	request := `{"action":"archive","layer":"SP2","paths":["textures/blocks/sample.png"]}`
+	preview := httptest.NewRecorder()
+	a.packAssets(preview, httptest.NewRequest("POST", assetURL, strings.NewReader(strings.TrimSuffix(request, "}")+`,"preview":true}`)))
+	if preview.Code != 200 || !strings.Contains(preview.Body.String(), `"edits":1`) || !strings.Contains(preview.Body.String(), `still uses texture alias sample`) {
+		t.Fatalf("preview: %d %s", preview.Code, preview.Body.String())
+	}
+	if _, err := os.Stat(texture); err != nil {
+		t.Fatalf("preview changed texture: %v", err)
+	}
+	archived := httptest.NewRecorder()
+	a.packAssets(archived, httptest.NewRequest("POST", assetURL, strings.NewReader(request)))
+	if archived.Code != 200 {
+		t.Fatalf("archive: %d %s", archived.Code, archived.Body.String())
+	}
+	if _, err := os.Stat(texture); !os.IsNotExist(err) {
+		t.Fatalf("texture still present: %v", err)
+	}
+	content, _ := os.ReadFile(atlas)
+	if strings.Contains(string(content), `"sample"`) || !strings.Contains(string(content), `"sample_extra"`) {
+		t.Fatalf("atlas after archive: %s", content)
+	}
+	restored := httptest.NewRecorder()
+	a.packAssets(restored, httptest.NewRequest("POST", assetURL, strings.NewReader(strings.Replace(request, `"archive"`, `"restore"`, 1))))
+	if restored.Code != 200 {
+		t.Fatalf("restore: %d %s", restored.Code, restored.Body.String())
+	}
+	if _, err := os.Stat(texture); err != nil {
+		t.Fatalf("texture not restored: %v", err)
+	}
+	content, _ = os.ReadFile(atlas)
+	if !strings.Contains(string(content), `"sample"`) {
+		t.Fatalf("atlas not restored: %s", content)
+	}
+	statePath := filepath.Join(root, "server", ".mcui", "asset-state", "resource", "custom.json")
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("state should be removed: %v", err)
 	}
 	deleted := httptest.NewRecorder()
 	a.serverPack(deleted, httptest.NewRequest("DELETE", base, nil))

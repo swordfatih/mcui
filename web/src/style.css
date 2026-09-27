@@ -595,6 +595,26 @@ footer span {
 .pack-version-list summary { width: fit-content; padding: 7px 0; color: #bed5b4; font-size: 12px; font-weight: 700; cursor: pointer; }
 .pack-version-list .pack-list { margin: 5px 0 0; }
 .pack-save-row { display: flex; align-items: center; gap: 16px; }
+.pack-assets { margin-top: 18px; }
+.pack-assets-heading, .pack-assets-selection { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.pack-assets-heading h2 { margin: 0; }
+.pack-assets-toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.pack-assets-toolbar label { display: grid; gap: 6px; min-width: 175px; flex: 1; color: #c5d5c4; font-size: 12px; }
+.pack-assets-toolbar input, .pack-assets-toolbar select { width: 100%; }
+.pack-assets-layer { margin: 14px 0; }
+.pack-assets-selection { flex-wrap: wrap; justify-content: flex-start; margin: 14px 0; padding: 12px; border: 1px solid #49644a; border-radius: 12px; }
+.pack-assets-preview { margin: 12px 0; padding: 12px; border: 1px solid #647c5b; border-radius: 10px; background: #213323; }
+.pack-assets-preview p { margin: 6px 0 0; color: #c5d5c4; font-size: 12px; }
+.pack-assets-list { max-height: 560px; overflow: auto; display: grid; gap: 6px; }
+.pack-asset { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid #405443; border-radius: 10px; cursor: pointer; }
+.pack-asset input { flex: none; }
+.pack-asset-thumb { width: 40px; height: 40px; flex: none; border-radius: 7px; object-fit: contain; background: #17251b; image-rendering: pixelated; }
+.pack-asset-file { display: grid; place-items: center; color: #a5b3a3; font-size: 10px; }
+.pack-asset-copy { display: grid; min-width: 0; flex: 1; }
+.pack-asset-copy strong, .pack-asset-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pack-asset-copy small { color: #a5b3a3; }
+.pack-asset-present { color: #c1dcae; }
+.pack-asset-archived { color: #e4b997; }
 .pack-save-row p { max-width: 580px; margin: 0; color: #a5b3a3; font-size: 12px; line-height: 1.5; }
 .pack-source-tabs { display: inline-flex; padding: 4px; gap: 4px; border: 1px solid #405443; border-radius: 10px; background: #17251b; margin: 8px 0 18px; }
 .pack-source-tabs button { border: 0; border-radius: 7px; padding: 9px 14px; background: transparent; color: #b8c9b4; font-weight: 700; }

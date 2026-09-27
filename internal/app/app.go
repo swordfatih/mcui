@@ -209,6 +209,7 @@ func Serve(addr, root string) error {
 	mux.HandleFunc("/api/servers/", a.action)
 	mux.HandleFunc("/api/server-details/", a.serverDetails)
 	mux.HandleFunc("/api/server-packs/", a.serverPack)
+	mux.HandleFunc("/api/pack-assets/", a.packAssets)
 	mux.HandleFunc("/servers/", serverPageHandler("web/dist/index.html"))
 	mux.Handle("/", http.FileServer(http.Dir("web/dist")))
 	log.Printf("mcui listening on %s; servers in %s", addr, root)

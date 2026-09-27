@@ -140,5 +140,14 @@ func (a *API) serverPack(w http.ResponseWriter, r *http.Request) {
 		bad(w, 500, err.Error())
 		return
 	}
+	assetRoot := filepath.Join(a.Root, name, ".mcui")
+	if err := os.RemoveAll(filepath.Join(assetRoot, "archived-assets", kind, folder)); err != nil {
+		bad(w, 500, "Pack deleted, but archived assets could not be removed: "+err.Error())
+		return
+	}
+	if err := os.Remove(filepath.Join(assetRoot, "asset-state", kind, folder+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		bad(w, 500, "Pack deleted, but asset index could not be removed: "+err.Error())
+		return
+	}
 	respond(w, 200, map[string]string{"message": "Pack deleted. Restart the server before playing."})
 }

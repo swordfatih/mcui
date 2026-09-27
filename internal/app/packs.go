@@ -33,6 +33,10 @@ type packManifest struct {
 	Modules []struct {
 		Type string `json:"type"`
 	} `json:"modules"`
+	Subpacks []struct {
+		FolderName string `json:"folder_name"`
+		Name       string `json:"name"`
+	} `json:"subpacks"`
 }
 type packInfo struct {
 	ID        string          `json:"id"`
