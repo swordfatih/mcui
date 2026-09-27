@@ -102,3 +102,43 @@ func TestServerFilesBrowseCleanupUploadDownloadDelete(t *testing.T) {
 		t.Fatalf("backup still exists: %v", err)
 	}
 }
+
+func TestSearchServerFilesSkipsMetadataAndSymlinks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "nested", "deeper"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nested", "deeper", "target.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".mcui"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".mcui", "target-secret.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "nested"), filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	results, err := searchServerFiles(root, "target")
+	if err != nil || len(results.Entries) != 1 || results.Entries[0].Path != "nested/deeper/target.json" {
+		t.Fatalf("search: %+v, %v", results, err)
+	}
+}
+
+func TestPreviewServerFileServesTextWithoutRenderingMarkup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "page.html")
+	content := []byte("<script>alert(1)</script>")
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	previewServerFile(w, path, info)
+	if w.Code != 200 || w.Header().Get("Content-Type") != "text/plain; charset=utf-8" || w.Body.String() != string(content) {
+		t.Fatalf("preview: %d %s", w.Code, w.Body.String())
+	}
+}

@@ -4,6 +4,10 @@ import (
 	"archive/zip"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"io/fs"
 	"net/http"
@@ -12,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type fileEntry struct {
@@ -22,9 +27,101 @@ type fileEntry struct {
 	Modified  time.Time `json:"modified"`
 }
 type fileListing struct {
-	Path    string      `json:"path"`
-	Entries []fileEntry `json:"entries"`
+	Path      string      `json:"path"`
+	Entries   []fileEntry `json:"entries"`
+	Truncated bool        `json:"truncated,omitempty"`
 }
+
+func searchServerFiles(root, term string) (fileListing, error) {
+	result := fileListing{Entries: []fileEntry{}}
+	term = strings.ToLower(strings.TrimSpace(term))
+	if len(term) < 2 || len(term) > 120 {
+		return result, errors.New("Search must be 2 to 120 characters")
+	}
+	visited := 0
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if path == root {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || entry.Name() == ".mcui" {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		visited++
+		if visited > 100000 || len(result.Entries) >= 200 {
+			result.Truncated = true
+			return filepath.SkipAll
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if !strings.Contains(strings.ToLower(entry.Name()), term) && !strings.Contains(strings.ToLower(rel), term) {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil
+		}
+		result.Entries = append(result.Entries, fileEntry{Name: entry.Name(), Path: rel, Directory: entry.IsDir(), Size: info.Size(), Modified: info.ModTime()})
+		return nil
+	})
+	return result, err
+}
+
+func previewServerFile(w http.ResponseWriter, path string, info fs.FileInfo) {
+	if !info.Mode().IsRegular() || info.Size() > 2<<20 {
+		bad(w, 400, "Preview unavailable for this file")
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" {
+		file, err := os.Open(path)
+		if err != nil {
+			bad(w, 500, err.Error())
+			return
+		}
+		defer file.Close()
+		_, format, err := image.DecodeConfig(file)
+		if err != nil || (format != "png" && format != "jpeg" && format != "gif") {
+			bad(w, 400, "Invalid image")
+			return
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			bad(w, 500, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "image/"+format)
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = io.Copy(w, file)
+		return
+	}
+	textTypes := map[string]bool{".txt": true, ".log": true, ".json": true, ".jsonc": true, ".yaml": true, ".yml": true, ".toml": true, ".properties": true, ".conf": true, ".cfg": true, ".md": true, ".xml": true, ".html": true, ".css": true, ".js": true, ".ts": true, ".mcfunction": true, ".sh": true}
+	if !textTypes[ext] {
+		bad(w, 400, "Preview unavailable for this file")
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		bad(w, 500, err.Error())
+		return
+	}
+	if !utf8.Valid(data) || strings.ContainsRune(string(data), 0) {
+		bad(w, 400, "Preview requires UTF-8 text")
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(data)
+}
+
 type cleanupItem struct {
 	Path   string `json:"path"`
 	Name   string `json:"name"`
@@ -227,6 +324,15 @@ func (a *API) serverFiles(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, a.fileCleanup(name, root))
 		return
 	}
+	if r.Method == http.MethodGet && r.URL.Query().Has("search") {
+		result, err := searchServerFiles(root, r.URL.Query().Get("search"))
+		if err != nil {
+			bad(w, 400, err.Error())
+			return
+		}
+		respond(w, 200, result)
+		return
+	}
 	if r.Method == http.MethodGet {
 		info, err := os.Lstat(path)
 		if err != nil {
@@ -235,6 +341,10 @@ func (a *API) serverFiles(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.URL.Query().Get("download") == "1" {
 			downloadServerFile(w, r, path, filepath.Base(path), info.IsDir())
+			return
+		}
+		if r.URL.Query().Get("preview") == "1" {
+			previewServerFile(w, path, info)
 			return
 		}
 		if !info.IsDir() {
