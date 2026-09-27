@@ -1,104 +1,64 @@
 package app
 
 import (
-	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 )
 
-func isBackupName(name string) bool {
-	return strings.HasPrefix(strings.ToLower(name), "backup")
-}
-
-// copyBackupTree stages server data without backup-prefixed entries or
-// following symbolic links. File modes and modification times are preserved.
-func copyBackupTree(src, dst string) error {
-	type directory struct {
-		path  string
-		mode  fs.FileMode
-		mtime int64
-	}
-	dirs := []directory{}
-	err := filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path != src && isBackupName(entry.Name()) {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		mode := info.Mode()
-		switch {
-		case mode.IsDir():
-			if err := os.MkdirAll(target, mode.Perm()|0700); err != nil {
-				return err
-			}
-			dirs = append(dirs, directory{target, mode.Perm(), info.ModTime().UnixNano()})
-		case mode.IsRegular():
-			in, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode.Perm())
-			if err != nil {
-				_ = in.Close()
-				return err
-			}
-			_, copyErr := io.Copy(out, in)
-			inErr := in.Close()
-			outErr := out.Close()
-			if copyErr != nil {
-				return copyErr
-			}
-			if inErr != nil {
-				return inErr
-			}
-			if outErr != nil {
-				return outErr
-			}
-			if err := os.Chtimes(target, info.ModTime(), info.ModTime()); err != nil {
-				return err
-			}
-		case mode&os.ModeSymlink != 0:
-			link, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			if err := os.Symlink(link, target); err != nil {
-				return err
-			}
-		default:
-			return errors.New("Server data contains a special file that cannot be backed up")
-		}
-		return nil
-	})
+// copyBackupTree copies only persistent data selected by the shared policy.
+func copyBackupTree(src, dst, edition string) error {
+	plan, err := planData(src, edition)
 	if err != nil {
 		return err
 	}
-	for i := len(dirs) - 1; i >= 0; i-- {
-		d := dirs[i]
-		if err := os.Chmod(d.path, d.mode); err != nil {
-			return err
-		}
-		stamp := time.Unix(0, d.mtime)
-		if err := os.Chtimes(d.path, stamp, stamp); err != nil {
+	if err := os.MkdirAll(dst, 0700); err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(src)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	for _, item := range plan.Keep {
+		if err := copyPreservedFromRoot(root, item.Path, filepath.Join(dst, filepath.FromSlash(item.Path))); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func copyPreservedFromRoot(root *os.Root, rel, dst string) error {
+	if !assetRelative(rel) {
+		return fs.ErrInvalid
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+		return err
+	}
+	in, err := root.Open(rel)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fs.ErrInvalid
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Chtimes(dst, info.ModTime(), info.ModTime())
 }

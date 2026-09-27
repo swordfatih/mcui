@@ -240,17 +240,20 @@ func (b *BackupManager) capture(ctx context.Context, name string) (string, error
 			return "", fmt.Errorf("stop server before backup: %w", err)
 		}
 	}
-	if dataSource == "" {
-		err = b.copyContainerData(ctx, name, filepath.Join(stage, "data"))
-	} else {
-		err = copyBackupTree(dataSource, filepath.Join(stage, "data"))
-	}
-	if err == nil {
-		var composeFile string
-		composeFile, err = b.api.composeFile(name)
+	server, _, editionErr := b.api.minecraftService(name)
+	if editionErr != nil {
+		err = editionErr
+	} else if dataSource == "" {
+		raw := filepath.Join(stage, ".raw")
+		err = b.copyContainerData(ctx, name, raw)
 		if err == nil {
-			err = copyFile(composeFile, filepath.Join(stage, filepath.Base(composeFile)))
+			err = copyBackupTree(raw, filepath.Join(stage, "data"), server.Edition)
 		}
+		if removeErr := os.RemoveAll(raw); err == nil {
+			err = removeErr
+		}
+	} else {
+		err = copyBackupTree(dataSource, filepath.Join(stage, "data"), server.Edition)
 	}
 	if wasRunning {
 		restartErr := b.compose(ctx, name, "up", "-d")
@@ -364,12 +367,6 @@ func writeBackupArchive(source, destination string) (err error) {
 		rel, err := filepath.Rel(source, path)
 		if err != nil {
 			return err
-		}
-		if strings.HasPrefix(rel, "data"+string(os.PathSeparator)) && isBackupName(entry.Name()) {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {

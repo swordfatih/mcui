@@ -1,0 +1,7 @@
+bedrock:
+  - '^worlds(?:/|$).*$'
+  - '^(?:resource_packs|behavior_packs)/[^/]+(?:/|$).*$'
+  - '^(?:server\.properties|allowlist\.json|permissions\.json|whitelist\.json|ops\.json)$'
+java:
+  - '^(?:world|world_nether|world_the_end|mods|plugins|config|datapacks|kubejs|scripts)(?:/|$).*$'
+  - '^(?:server\.properties|whitelist\.json|allowlist\.json|ops\.json|banned-ips\.json|banned-players\.json|usercache\.json|permissions\.yml|bukkit\.yml|spigot\.yml|paper\.yml)$'

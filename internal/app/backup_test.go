@@ -37,6 +37,15 @@ func TestBackupCapturesRestartsAndUploads(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(world, "backup-world.zip"), []byte("old world"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	for name, value := range map[string]string{"resource_packs/vanilla_1.26.52/manifest.json": "builtin", "resource_packs/custom/manifest.json": "custom", "server.properties": "difficulty=normal", "bedrock_server": "runtime"} {
+		path := filepath.Join(volume, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(value), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	config := t.TempDir()
 	t.Setenv("MCUI_TEST_DATA_VOLUME", volume)
 	t.Setenv("MCUI_BACKUP_DIR", config)
@@ -130,12 +139,15 @@ cp "$4" "$MCUI_TEST_ARCHIVE"
 			entries[header.Name] = string(content)
 		}
 	}
-	if entries["data/worlds/world/level.dat"] != "world data" || entries["compose.yaml"] == "" {
+	if entries["data/worlds/world/level.dat"] != "world data" || entries["data/resource_packs/custom/manifest.json"] != "custom" || entries["data/server.properties"] != "difficulty=normal" {
 		t.Fatalf("archive missing server files: %v", entries)
 	}
-	for name := range entries {
-		if strings.Contains(strings.ToLower(name), "backup") {
-			t.Fatalf("archive contains a backup-prefixed data entry: %s", name)
+	if entries["data/worlds/world/backup-world.zip"] != "old world" {
+		t.Fatal("user file inside world omitted")
+	}
+	for _, name := range []string{"compose.yaml", "data/bedrock_server", "data/resource_packs/vanilla_1.26.52/manifest.json", "data/backup-pre-1.26.52/old-pack.dat"} {
+		if _, ok := entries[name]; ok {
+			t.Fatalf("archive contains non-user file %s", name)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(root, ".backup-stage", "bedrock-home")); !os.IsNotExist(err) {
@@ -153,23 +165,23 @@ cp "$4" "$MCUI_TEST_ARCHIVE"
 	}
 }
 
-func TestBackupArchiveExcludesBackupEntriesFromNamedVolumeStage(t *testing.T) {
+func TestBackupArchiveContainsOnlySelectedStage(t *testing.T) {
 	stage := t.TempDir()
-	data := filepath.Join(stage, "data")
-	for _, dir := range []string{"worlds/world", "backup-pre-1.26.52", "worlds/world/Backups"} {
-		if err := os.MkdirAll(filepath.Join(data, dir), 0755); err != nil {
+	source := t.TempDir()
+	for _, dir := range []string{"worlds/world", "backup-pre-1.26.52", "resource_packs/vanilla_1.26.52", "resource_packs/custom"} {
+		if err := os.MkdirAll(filepath.Join(source, dir), 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for name, content := range map[string]string{
-		"data/worlds/world/level.dat":       "world",
-		"data/backup-pre-1.26.52/old.dat":   "old",
-		"data/worlds/world/Backups/old.dat": "old",
-		"compose.yaml":                      "services: {}",
+		"worlds/world/level.dat": "world", "backup-pre-1.26.52/old.dat": "old", "resource_packs/vanilla_1.26.52/manifest.json": "builtin", "resource_packs/custom/manifest.json": "custom",
 	} {
-		if err := os.WriteFile(filepath.Join(stage, name), []byte(content), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(source, name), []byte(content), 0644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := copyBackupTree(source, filepath.Join(stage, "data"), "bedrock"); err != nil {
+		t.Fatal(err)
 	}
 	archive := filepath.Join(t.TempDir(), "backup.tar.gz")
 	if err := writeBackupArchive(stage, archive); err != nil {
@@ -197,17 +209,17 @@ func TestBackupArchiveExcludesBackupEntriesFromNamedVolumeStage(t *testing.T) {
 		}
 		entries[header.Name] = true
 	}
-	if !entries["data/worlds/world/level.dat"] || !entries["compose.yaml"] {
+	if !entries["data/worlds/world/level.dat"] || !entries["data/resource_packs/custom/manifest.json"] {
 		t.Fatalf("archive omitted required files: %v", entries)
 	}
-	for name := range entries {
-		if strings.Contains(strings.ToLower(name), "backup") {
-			t.Fatalf("archive contains backup-prefixed data entry: %s", name)
+	for _, name := range []string{"data/backup-pre-1.26.52/old.dat", "data/resource_packs/vanilla_1.26.52/manifest.json"} {
+		if entries[name] {
+			t.Fatalf("archive contains non-user file: %s", name)
 		}
 	}
 }
 
-func TestCopyBackupTreeSkipsBackupEntries(t *testing.T) {
+func TestCopyBackupTreeKeepsPersistentData(t *testing.T) {
 	source := t.TempDir()
 	for _, dir := range []string{"worlds/world", "backup-pre-1.26.52", "worlds/world/Backups"} {
 		if err := os.MkdirAll(filepath.Join(source, dir), 0755); err != nil {
@@ -224,16 +236,19 @@ func TestCopyBackupTreeSkipsBackupEntries(t *testing.T) {
 		}
 	}
 	destination := filepath.Join(t.TempDir(), "data")
-	if err := copyBackupTree(source, destination); err != nil {
+	if err := copyBackupTree(source, destination, "bedrock"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(destination, "worlds/world/level.dat")); err != nil {
 		t.Fatalf("world missing from staged data: %v", err)
 	}
-	for _, name := range []string{"backup-pre-1.26.52", "worlds/world/Backups"} {
+	for _, name := range []string{"backup-pre-1.26.52"} {
 		if _, err := os.Stat(filepath.Join(destination, name)); !os.IsNotExist(err) {
 			t.Fatalf("backup entry was staged: %s: %v", name, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(destination, "worlds/world/Backups/old.dat")); err != nil {
+		t.Fatalf("world data missing: %v", err)
 	}
 }
 

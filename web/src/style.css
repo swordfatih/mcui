@@ -607,6 +607,7 @@ footer span {
 .pack-assets-preview p { margin: 6px 0 0; color: #c5d5c4; font-size: 12px; }
 .files-page { display: grid; gap: 18px; margin-top: 22px; }
 .files-heading, .files-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.files-heading-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .files-heading h2 { margin: 0 0 6px; }
 .files-view-tabs { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid #405443; border-radius: 11px; background: #17251b; }
 .files-view-tabs button { border: 0; border-radius: 8px; padding: 9px 13px; background: transparent; color: #b8cbb7; cursor: pointer; }
@@ -650,6 +651,10 @@ footer span {
 .files-cleanup-item code { overflow-wrap: anywhere; color: #90a98e; font-size: 11px; }
 .files-dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: #071009c9; }
 .files-dialog { width: min(100%, 470px); display: grid; gap: 14px; }
+.files-reset-dialog { width: min(100%, 640px); max-height: min(85vh, 800px); overflow: auto; }
+.files-reset-dialog details { border: 1px solid #405443; border-radius: 8px; padding: 10px; }
+.files-reset-dialog ul { max-height: 160px; overflow: auto; padding-left: 22px; }
+.files-reset-dialog li { margin: 4px 0; overflow-wrap: anywhere; }
 .files-dialog h3, .files-dialog p { margin: 0; }
 .files-dialog p { overflow-wrap: anywhere; color: #c8d6c5; }
 .files-dialog label { display: grid; gap: 8px; }

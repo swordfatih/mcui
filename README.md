@@ -41,7 +41,7 @@ Server dashboards have shareable `/servers/<name>` URLs. Refreshing a dashboard 
 
 ## Google Drive backups
 
-MCUI uploads a standard, unencrypted `.tar.gz` archive for each backup to `<remote>:<path>/<server-name>/`. The default is `drive:mcui/<server-name>/`. Each archive contains the Compose file and a `data/` folder. Entries anywhere under `data/` whose names start with `backup` (case-insensitive) are excluded, including itzg's `backup-pre-*` upgrade copies. [rclone](https://rclone.org/drive/) handles Google Drive access.
+MCUI uploads a standard, unencrypted `.tar.gz` archive for each backup to `<remote>:<path>/<server-name>/`. The default is `drive:mcui/<server-name>/`. Each archive contains only persistent user files under `data/`, selected by the same embedded policy used for server reset. This includes worlds, settings, allow lists, and custom packs. Runtime files, built-in packs, generated copies, and Compose are excluded. [rclone](https://rclone.org/drive/) handles Google Drive access.
 
 1. Install rclone on the host and configure a Google Drive remote named `drive` in `backup/rclone.conf`. Use `mkdir -p backup` followed by `rclone config --config "$PWD/backup/rclone.conf"`. rclone's shared Google client ID is being retired, so configure your own Google OAuth client ID as its Drive guide recommends. If you use a different remote name, set `MCUI_BACKUP_REMOTE` in `.env`.
 2. Set `chmod 600 backup/rclone.conf` to protect the Google Drive credentials.
@@ -49,7 +49,7 @@ MCUI uploads a standard, unencrypted `.tar.gz` archive for each backup to `<remo
 
 The `backup/` directory is mounted into MCUI and ignored by Git and the image build. It must be writable because rclone may refresh its OAuth token. The Compose setup installs rclone in the MCUI image. For a native Go run, install rclone locally and set `MCUI_BACKUP_DIR` to the absolute path of `backup/`.
 
-Click **Back up now** on a server for an on-demand archive. `MCUI_BACKUP_INTERVAL` schedules backups for every server; the default is `24h`, and `0` disables scheduling. Jobs run one at a time. The interval starts when MCUI starts. MCUI stops a running server, finds its `/data` mount through `docker compose config`, and copies that data and the Compose file into a temporary folder under `servers/.backup-stage/`. Bind mount sources must be accessible inside MCUI; named volumes are copied through the server container. MCUI then restarts a server that was running before compressing and uploading the copy. Ensure there is enough free space for one full server copy and its compressed archive. If the server was already stopped, MCUI leaves it stopped. The dashboard shows job progress and the last successful archive filename; the latter is also stored in `servers/<name>/last-backup.json`. A failed capture or upload is reported in the dashboard. Existing encrypted restic repositories are left on Drive; MCUI does not delete or convert them. Restoring and deleting old backups are outside this version's scope.
+Click **Back up now** on a server for an on-demand archive. `MCUI_BACKUP_INTERVAL` schedules backups for every server; the default is `24h`, and `0` disables scheduling. Jobs run one at a time. The interval starts when MCUI starts. MCUI stops a running server, finds its `/data` mount through `docker compose config`, and stages only persistent files under `servers/.backup-stage/`. Bind mount sources must be accessible inside MCUI; named volumes are copied through the server container before filtering. MCUI then restarts a server that was running before compressing and uploading the copy. Ensure there is enough free space for one full server copy and its compressed archive; named-volume capture briefly needs room for an unfiltered copy as well. If the server was already stopped, MCUI leaves it stopped. The dashboard shows job progress and the last successful archive filename; the latter is also stored in `servers/<name>/last-backup.json`. A failed capture or upload is reported in the dashboard. Existing encrypted restic repositories are left on Drive; MCUI does not delete or convert them. Restoring and deleting old backups are outside this version's scope.
 
 ## Create a server
 
@@ -68,7 +68,7 @@ servers/server1/
 └── last-backup.json
 ```
 
-`last-backup.json` records the last successful archive filename and time. Each Google Drive archive contains the server's Compose file and `data/`; `last-backup.json` appears after the first successful backup. Those files are the source of truth. MCUI has no database. It uses `docker compose config` to find a single service using an itzg Minecraft image; the service name and published port can vary, and Docker Compose's standard Compose filenames are supported. Keep these folders together when moving to another host, then start the projects there. The dashboard does not delete servers in this version.
+`last-backup.json` records the last successful archive filename and time. Each Google Drive archive contains persistent user files in `data/`; the Compose file stays in the server directory and must be retained separately when moving to another host. `last-backup.json` appears after the first successful backup. MCUI has no database. It uses `docker compose config` to find a single service using an itzg Minecraft image; the service name and published port can vary, and Docker Compose's standard Compose filenames are supported. The dashboard does not delete servers in this version.
 
 MCUI uses [itzg/minecraft-bedrock-server](https://github.com/itzg/docker-minecraft-bedrock-server) for Bedrock and [itzg/minecraft-server](https://github.com/itzg/docker-minecraft-server) for Java. Both images mount the server's `data/` at `/data`.
 
@@ -92,6 +92,8 @@ JSON requests and responses:
 | `GET` | `/api/server-details/{name}/storage` | Size of the container's `/data` folder |
 | `GET`, `PUT` | `/api/server-details/{name}/settings` | Read or edit image and environment variables |
 | `GET`, `PUT` | `/api/server-details/{name}/compose` | Read or edit validated Compose YAML |
+| `GET` | `/api/server-reset/{name}` | Review files kept and deleted, with a revision token |
+| `POST` | `/api/server-reset/{name}` | Reset stopped server data with `{confirm, revision}` |
 
 `edition` is `bedrock` or `java`; `worldPath` may be empty. Errors have an `error` string. Status is polled every five seconds and may be `running`, `stopped`, another Docker state, or `unknown` if Docker cannot be queried. Start and stop errors are returned to the UI.
 
@@ -108,6 +110,8 @@ The Bedrock **Resources** tab lists installed resource and behavior packs, resol
 
 The **Files** tab browses the server directory, supports file upload, file download, folder ZIP download, and confirmed deletion. Uploads and deletion require a stopped server; existing files are never overwritten. The cleanup review identifies `backup-pre-*` directories and `*.backup-*` pack copies, with their sizes and reasons. It also identifies custom packs whose UUID is absent from the active world's pack JSON, while noting that they may be kept for later or another world. It does not mark Bedrock's versioned vanilla folders as unused. The active world, Bedrock-provided pack folders, server compose files, and MCUI metadata are protected from deletion.
 
+**Reset server** in the Files tab requires the server to be stopped. It shows the exact files to keep and delete and requires the server name as confirmation. Reset preserves persistent user files, including worlds, settings, allow lists, and custom behavior and resource packs. It deletes built-in packs and all other files under `/data`, including runtime files and old generated copies. Empty directories are removed. Compose remains outside `/data`, so MCUI can start the server again. Reset supports bind mounts and named volumes. The two embedded YAML policies for built-in content and persistent user data are shared with backups; built-in rules win when both match. Java directories containing a `level.dat` file are treated as custom worlds. Symbolic links and special files in `/data` block reset and backup until they are removed or replaced.
+
 ## Future design
 
-Backup capture includes the server's data folder and Compose file. A future restore flow should stop the server first, and retention needs a separate policy. Java may alternatively use `itzg/mc-backup`, but that image does not support Bedrock. None of that requires a database for the current server inventory.
+Backup capture includes persistent user files from the server's data folder. A future restore flow should stop the server first, and retention needs a separate policy. Java may alternatively use `itzg/mc-backup`, but that image does not support Bedrock. None of that requires a database for the current server inventory.

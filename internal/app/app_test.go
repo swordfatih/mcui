@@ -10,7 +10,24 @@ import (
 	"testing"
 )
 
+func fakeDockerConfig(t *testing.T, config string) {
+	t.Helper()
+	bin := t.TempDir()
+	path := filepath.Join(bin, "docker")
+	script := "#!/bin/sh\ncase \" $* \" in\n  *\" config \"*) cat \"$MCUI_TEST_CONFIG\" ;;\n  *\" ps \"*) : ;;\nesac\n"
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(bin, "config.json")
+	if err := os.WriteFile(configPath, []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("MCUI_TEST_CONFIG", configPath)
+}
+
 func TestCreateBedrockAndDiscover(t *testing.T) {
+	fakeDockerConfig(t, `{"services":{"minecraft":{"image":"itzg/minecraft-bedrock-server:latest","ports":[{"published":"19132","target":19132,"protocol":"udp"}]}}}`)
 	a := API{Root: t.TempDir()}
 	world := filepath.Join(t.TempDir(), "save")
 	if err := os.Mkdir(world, 0755); err != nil {
@@ -43,6 +60,7 @@ func TestCreateBedrockAndDiscover(t *testing.T) {
 }
 
 func TestDiscoverExistingComposeWithoutPort(t *testing.T) {
+	fakeDockerConfig(t, `{"services":{"minecraft":{"image":"itzg/minecraft-server:java21"}}}`)
 	a := API{Root: t.TempDir()}
 	dir := filepath.Join(a.Root, "bedrock_ana")
 	if err := os.Mkdir(dir, 0755); err != nil {
@@ -105,6 +123,7 @@ func TestCreateValidation(t *testing.T) {
 }
 
 func TestServersHTTP(t *testing.T) {
+	fakeDockerConfig(t, `{"services":{"minecraft":{"image":"itzg/minecraft-bedrock-server:latest","ports":[{"published":"19132","target":19132,"protocol":"udp"}]}}}`)
 	a := API{Root: t.TempDir()}
 	body := strings.NewReader(`{"name":"bedrock-home","edition":"bedrock","port":19132,"worldPath":"","acceptEula":true}`)
 	createReq := httptest.NewRequest("POST", "/api/servers", body)

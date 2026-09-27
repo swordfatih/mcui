@@ -191,13 +191,7 @@ func stripJSONComments(content []byte) []byte {
 	return clean
 }
 func builtInPack(kind, folder string) bool {
-	if folder == "vanilla" || strings.HasPrefix(folder, "vanilla_") || folder == "chemistry" || strings.HasPrefix(folder, "chemistry_") || folder == "editor" {
-		return true
-	}
-	if kind == "behavior" {
-		return strings.HasPrefix(folder, "experimental_") || folder == "server_library" || folder == "server_ui_library" || folder == "server_editor_library"
-	}
-	return false
+	return serverDataPolicy.builtins.match("bedrock", kind+"_packs/"+folder)
 }
 func resolvedPackName(folder, key string) string {
 	if key == "" {
