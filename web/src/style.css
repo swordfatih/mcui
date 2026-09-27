@@ -605,6 +605,48 @@ footer span {
 .pack-assets-selection { flex-wrap: wrap; justify-content: flex-start; margin: 14px 0; padding: 12px; border: 1px solid #49644a; border-radius: 12px; }
 .pack-assets-preview { margin: 12px 0; padding: 12px; border: 1px solid #647c5b; border-radius: 10px; background: #213323; }
 .pack-assets-preview p { margin: 6px 0 0; color: #c5d5c4; font-size: 12px; }
+.files-page { display: grid; gap: 18px; margin-top: 22px; }
+.files-heading, .files-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.files-heading h2 { margin: 0 0 6px; }
+.files-view-tabs { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid #405443; border-radius: 11px; background: #17251b; }
+.files-view-tabs button { border: 0; border-radius: 8px; padding: 9px 13px; background: transparent; color: #b8cbb7; cursor: pointer; }
+.files-view-tabs button.selected { background: #3b5d3d; color: #f2faef; }
+.files-toolbar { padding: 4px 0; }
+.files-toolbar input { min-width: 220px; }
+.files-breadcrumbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.files-breadcrumbs button { border: 0; background: transparent; color: #c5dec1; cursor: pointer; padding: 4px; }
+.files-breadcrumbs span { color: #8da38c; }
+.files-list { padding: 0; overflow: hidden; }
+.files-list-head, .files-row { display: grid; grid-template-columns: minmax(190px, 1fr) 90px 150px 160px; align-items: center; gap: 12px; padding: 11px 16px; }
+.files-list-head { color: #9caf9a; font-size: 12px; border-bottom: 1px solid #405443; }
+.files-row { min-height: 58px; border-bottom: 1px solid #324635; color: #b9cbb7; font-size: 12px; }
+.files-row:last-child { border-bottom: 0; }
+.files-name { display: flex; align-items: center; gap: 11px; min-width: 0; padding: 0; border: 0; background: transparent; color: #e1efdd; text-align: left; cursor: pointer; }
+.files-name span { font-size: 19px; color: #a4c398; }
+.files-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files-actions { display: flex; align-items: center; gap: 10px; }
+.files-actions a, .files-actions button { border: 0; padding: 4px 0; background: transparent; color: #c3ddb9; font-size: 12px; text-decoration: none; cursor: pointer; }
+.files-actions button { color: #e5aa9e; }
+.files-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.files-empty { padding: 24px; }
+.files-upload { display: grid; gap: 12px; }
+.files-upload h3, .files-cleanup h3 { margin: 0 0 6px; }
+.files-dropzone { display: grid; place-items: center; min-height: 90px; padding: 20px; border: 1px dashed #738c6b; border-radius: 12px; color: #d3e7cd; cursor: pointer; text-align: center; }
+.files-dropzone.dragging { background: #2c452e; border-color: #b6d5a7; }
+.files-dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.files-upload .primary { justify-self: start; }
+.files-cleanup-item { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 18px 0; border-top: 1px solid #405443; }
+.files-cleanup-item small { color: #adc8a6; }
+.files-cleanup-item h4 { margin: 5px 0; }
+.files-cleanup-item p { margin: 0 0 7px; color: #b4c5b0; font-size: 13px; }
+.files-cleanup-item code { overflow-wrap: anywhere; color: #90a98e; font-size: 11px; }
+.files-dialog-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: #071009c9; }
+.files-dialog { width: min(100%, 470px); display: grid; gap: 14px; }
+.files-dialog h3, .files-dialog p { margin: 0; }
+.files-dialog p { overflow-wrap: anywhere; color: #c8d6c5; }
+.files-dialog label { display: grid; gap: 8px; }
+.files-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+@media(max-width:700px) { .files-list-head { display: none; } .files-row { grid-template-columns: minmax(0,1fr) auto; } .files-row > span { display: none; } .files-cleanup-item { align-items: flex-start; flex-direction: column; } }
 .pack-assets-list { max-height: 560px; overflow: auto; display: grid; gap: 6px; }
 .pack-asset { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid #405443; border-radius: 10px; cursor: pointer; }
 .pack-asset input { flex: none; }

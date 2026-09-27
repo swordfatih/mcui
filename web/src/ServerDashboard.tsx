@@ -4,6 +4,7 @@ import axios from 'axios'
 import Infrastructure from './Infrastructure'
 import Console from './Console'
 import Packs from './Packs'
+import Files from './Files'
 
 type Server = {
   name: string
@@ -27,7 +28,7 @@ type PlayerStatus = {
   players?: string[]
   reason?: string
 }
-type Tab = 'overview' | 'infrastructure' | 'console' | 'resources'
+type Tab = 'overview' | 'infrastructure' | 'console' | 'resources' | 'files'
 
 const api = axios.create({ baseURL: '/api' })
 const errorMessage = (error: unknown) => axios.isAxiosError(error)
@@ -48,7 +49,7 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
 }) {
   const qc = useQueryClient()
   const key = encodeURIComponent(server.name)
-  const [tab, setTab] = useState<Tab>(() => new URLSearchParams(window.location.search).get('tab') === 'resources' && server.edition === 'bedrock' ? 'resources' : 'overview')
+  const [tab, setTab] = useState<Tab>(() => { const requested = new URLSearchParams(window.location.search).get('tab'); return requested === 'resources' && server.edition === 'bedrock' ? 'resources' : requested === 'files' ? 'files' : 'overview' })
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
@@ -133,7 +134,7 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
     </section>
 
     <nav className="detail-tabs" aria-label="Server sections">
-      {(['overview', 'resources', 'infrastructure', 'console'] as const).filter(section => section !== 'resources' || server.edition === 'bedrock').map(section => <button
+      {(['overview', 'resources', 'files', 'infrastructure', 'console'] as const).filter(section => section !== 'resources' || server.edition === 'bedrock').map(section => <button
         key={section}
         type="button"
         className={tab === section ? 'selected' : ''}
@@ -194,5 +195,6 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
 
     {tab === 'console' && <Console server={server} />}
     {tab === 'resources' && <Packs name={server.name} />}
+    {tab === 'files' && <Files server={server.name} stopped={server.status === 'stopped'} />}
   </main>
 }
