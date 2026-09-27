@@ -17,7 +17,7 @@ func TestServerFilesBrowseCleanupUploadDownloadDelete(t *testing.T) {
 	data := filepath.Join(server, "bedrock_data")
 	backup := filepath.Join(data, "backup-pre-1.26.52.3")
 	world := filepath.Join(data, "worlds", "BedrockWorld", "db")
-	for _, dir := range []string{backup, world, filepath.Join(data, "resource_packs", "vanilla_1.26.52")} {
+	for _, dir := range []string{backup, world, filepath.Join(data, "resource_packs", "vanilla_1.26.52"), filepath.Join(data, "resource_packs", "vanilla_base")} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -30,6 +30,9 @@ func TestServerFilesBrowseCleanupUploadDownloadDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(custom, "manifest.json"), []byte(`{"header":{"name":"Custom","uuid":"2cf066eb-1254-4b7d-affb-80fe3216b18c","version":[1,0,0]},"modules":[{"type":"resources"}]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "resource_packs", "vanilla_base", "manifest.json"), []byte(`{"header":{"name":"Vanilla base","uuid":"0e04d6bc-f46c-4d34-a35f-c2bf78e50b88","version":[1,0,0]},"modules":[{"type":"resources"}]}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(backup, "old.txt"), []byte("old"), 0644); err != nil {
@@ -54,7 +57,7 @@ func TestServerFilesBrowseCleanupUploadDownloadDelete(t *testing.T) {
 	base := "/api/server-files/server"
 	review := httptest.NewRecorder()
 	a.serverFiles(review, httptest.NewRequest("GET", base+"?cleanup=1", nil))
-	if review.Code != 200 || !strings.Contains(review.Body.String(), "backup-pre-1.26.52.3") || !strings.Contains(review.Body.String(), "Unselected resource pack") || strings.Contains(review.Body.String(), "vanilla_1.26.52") {
+	if review.Code != 200 || !strings.Contains(review.Body.String(), "backup-pre-1.26.52.3") || !strings.Contains(review.Body.String(), "Unselected resource pack") || strings.Contains(review.Body.String(), "vanilla_1.26.52") || strings.Contains(review.Body.String(), "vanilla_base") {
 		t.Fatalf("cleanup: %d %s", review.Code, review.Body.String())
 	}
 	list := httptest.NewRecorder()
@@ -86,7 +89,7 @@ func TestServerFilesBrowseCleanupUploadDownloadDelete(t *testing.T) {
 	if download.Code != 200 || download.Body.String() != "uploaded" {
 		t.Fatalf("download: %d %s", download.Code, download.Body.String())
 	}
-	for _, rel := range []string{"bedrock_data", "bedrock_data/worlds", "bedrock_data/resource_packs/vanilla_1.26.52", "compose.yaml"} {
+	for _, rel := range []string{"bedrock_data", "bedrock_data/worlds", "bedrock_data/resource_packs/vanilla_1.26.52", "bedrock_data/resource_packs/vanilla_base", "compose.yaml"} {
 		response := httptest.NewRecorder()
 		a.serverFiles(response, httptest.NewRequest("DELETE", base+"?path="+rel, nil))
 		if response.Code != 403 {

@@ -1,4 +1,4 @@
 bedrock:
-  - '^resource_packs/(?:vanilla(?:_[0-9][^/]*)?|chemistry(?:_[0-9][^/]*)?|editor)(?:/|$).*$'
-  - '^behavior_packs/(?:vanilla(?:_[0-9][^/]*)?|chemistry(?:_[0-9][^/]*)?|editor|experimental_[^/]+|server_library|server_ui_library|server_editor_library)(?:/|$).*$'
+  - '^resource_packs/(?:vanilla(?:_base|_[0-9][^/]*)?|chemistry(?:_[0-9][^/]*)?|editor)(?:/|$).*$'
+  - '^behavior_packs/(?:vanilla(?:_base|_[0-9][^/]*)?|chemistry(?:_[0-9][^/]*)?|editor|experimental_[^/]+|server_library|server_ui_library|server_editor_library)(?:/|$).*$'
 java: []

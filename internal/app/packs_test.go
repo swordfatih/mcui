@@ -60,17 +60,17 @@ func TestPackActivationUsesUUIDWithVersionFallback(t *testing.T) {
 }
 
 func TestBedrockProvidedPackFoldersAndCommentedManifest(t *testing.T) {
-	for _, folder := range []string{"vanilla", "vanilla_1.21.60", "chemistry", "chemistry_1.21.20", "editor"} {
+	for _, folder := range []string{"vanilla", "vanilla_base", "vanilla_1.21.60", "chemistry", "chemistry_1.21.20", "editor"} {
 		if !builtInPack("resource", folder) {
 			t.Fatalf("%s should be Bedrock-provided", folder)
 		}
 	}
-	for _, folder := range []string{"experimental_creator_cameras", "experimental_poi", "server_library", "server_ui_library", "server_editor_library"} {
+	for _, folder := range []string{"vanilla_base", "experimental_creator_cameras", "experimental_poi", "server_library", "server_ui_library", "server_editor_library"} {
 		if !builtInPack("behavior", folder) {
 			t.Fatalf("%s should be Bedrock-provided", folder)
 		}
 	}
-	for _, folder := range []string{"my-vanilla-pack", "vanilla-custom", "actions-and-stuff", "HostileMobsReducer", "LongerDays"} {
+	for _, folder := range []string{"my-vanilla-pack", "vanilla-custom", "vanilla_base_custom", "actions-and-stuff", "HostileMobsReducer", "LongerDays"} {
 		if builtInPack("behavior", folder) || builtInPack("resource", folder) {
 			t.Fatalf("%s should not be classified", folder)
 		}

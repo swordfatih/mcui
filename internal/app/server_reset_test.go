@@ -34,7 +34,7 @@ func TestDataPolicyResetAndBackupAgree(t *testing.T) {
 		edition      string
 		keep, remove []string
 	}{
-		{"bedrock", []string{"worlds/my-world/level.dat", "server.properties", "allowlist.json", "resource_packs/vanilla_custom/manifest.json", "behavior_packs/my_pack/manifest.json"}, []string{"resource_packs/vanilla_1.26.52/manifest.json", "behavior_packs/server_library/manifest.json", "behavior_packs/experimental_1/manifest.json", "bedrock_server", "backup-pre-1/old"}},
+		{"bedrock", []string{"worlds/my-world/level.dat", "server.properties", "allowlist.json", "resource_packs/vanilla_custom/manifest.json", "behavior_packs/my_pack/manifest.json"}, []string{"resource_packs/vanilla_base/manifest.json", "behavior_packs/vanilla_base/manifest.json", "resource_packs/vanilla_1.26.52/manifest.json", "behavior_packs/server_library/manifest.json", "behavior_packs/experimental_1/manifest.json", "bedrock_server", "backup-pre-1/old"}},
 		{"java", []string{"world/level.dat", "world_nether/level.dat", "adventure/maps/world/level.dat", "adventure/maps/world/region/r.0.0.mca", "server.properties", "whitelist.json", "mods/custom.jar"}, []string{"logs/latest.log", "libraries/x.jar", "adventure/notes.txt"}},
 	} {
 		t.Run(tc.edition, func(t *testing.T) {
