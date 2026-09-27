@@ -180,3 +180,110 @@ func TestPackDetailPageLoadsOnRefresh(t *testing.T) {
 		t.Fatalf("pack page: %d %s", response.Code, response.Body.String())
 	}
 }
+
+func TestPackDetailSelectsSubpackForResourceAndBehavior(t *testing.T) {
+	for _, kind := range []string{"resource", "behavior"} {
+		t.Run(kind, func(t *testing.T) {
+			a, rp, bp, world := setupPackUpdateServer(t)
+			folder, dir, uuid := "actions-resource", rp, updateResourceUUID
+			if kind == "behavior" {
+				folder, dir, uuid = "actions-behavior", bp, updateBehaviorUUID
+			}
+			manifestPath := filepath.Join(dir, "manifest.json")
+			content, err := os.ReadFile(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest := strings.TrimSuffix(string(content), "}") + `,"subpacks":[{"folder_name":"SP1","name":"Happy"},{"folder_name":"SP2","name":"Flash"},{"folder_name":"missing","name":"Missing"}]}`
+			if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
+				t.Fatal(err)
+			}
+			for _, sub := range []string{"SP1", "SP2"} {
+				if err := os.MkdirAll(filepath.Join(dir, "subpacks", sub), 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			base := "/api/server-packs/server/" + kind + "/" + folder
+			get := httptest.NewRecorder()
+			a.serverPack(get, httptest.NewRequest("GET", base, nil))
+			if get.Code != 200 {
+				t.Fatalf("detail: %d %s", get.Code, get.Body.String())
+			}
+			var detail packDetailResponse
+			if err := json.Unmarshal(get.Body.Bytes(), &detail); err != nil {
+				t.Fatal(err)
+			}
+			if len(detail.Subpacks) != 2 || detail.Subpacks[0].Name != "Happy" || detail.Subpacks[1].Folder != "SP2" {
+				t.Fatalf("wrong subpack options: %+v", detail.Subpacks)
+			}
+			if kind == "resource" && detail.SelectedSubpack != "fancy" {
+				t.Fatalf("existing selection was lost: %q", detail.SelectedSubpack)
+			}
+			refsPath := filepath.Join(world, packFile(kind))
+			for _, sub := range []string{"missing", "../SP1"} {
+				badSelection := httptest.NewRecorder()
+				a.serverPack(badSelection, httptest.NewRequest("PUT", base, strings.NewReader(`{"subpack":"`+sub+`"}`)))
+				if badSelection.Code != 400 {
+					t.Fatalf("accepted invalid subpack %q: %d %s", sub, badSelection.Code, badSelection.Body.String())
+				}
+			}
+			for _, sub := range []string{"SP2", ""} {
+				saved := httptest.NewRecorder()
+				a.serverPack(saved, httptest.NewRequest("PUT", base, strings.NewReader(`{"subpack":"`+sub+`"}`)))
+				if saved.Code != 200 {
+					t.Fatalf("save %q: %d %s", sub, saved.Code, saved.Body.String())
+				}
+				refs, err := readPackRefs(refsPath)
+				if err != nil || len(refs) != 1 || refs[0].PackID != uuid || refs[0].Subpack != sub {
+					t.Fatalf("saved refs: %+v %v", refs, err)
+				}
+				get := httptest.NewRecorder()
+				a.serverPack(get, httptest.NewRequest("GET", base, nil))
+				var current packDetailResponse
+				if get.Code != 200 || json.Unmarshal(get.Body.Bytes(), &current) != nil || current.SelectedSubpack != sub {
+					t.Fatalf("detail selection: %d %s", get.Code, get.Body.String())
+				}
+			}
+		})
+	}
+}
+
+func TestPackDetailSubpackRequiresActiveStoppedPack(t *testing.T) {
+	a, _, bp, world := setupPackUpdateServer(t)
+	manifestPath := filepath.Join(bp, "manifest.json")
+	manifest := strings.TrimSuffix(updateManifest("Actions Behavior", updateBehaviorUUID, "data", `[1,10,0]`), "}") + `,"subpacks":[{"folder_name":"SP1","name":"Happy"}]}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(bp, "subpacks", "SP1"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/server-packs/server/behavior/actions-behavior"
+	selectSubpack := func() *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		a.serverPack(response, httptest.NewRequest("PUT", base, strings.NewReader(`{"subpack":"SP1"}`)))
+		return response
+	}
+	if err := writePackRefs(filepath.Join(world, "world_behavior_packs.json"), []packRef{}); err != nil {
+		t.Fatal(err)
+	}
+	if response := selectSubpack(); response.Code != 409 {
+		t.Fatalf("inactive pack changed: %d %s", response.Code, response.Body.String())
+	}
+	if err := writePackRefs(filepath.Join(world, "world_behavior_packs.json"), []packRef{{PackID: updateBehaviorUUID, Version: json.RawMessage(`[1,10,0]`)}}); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\ncase \"$*\" in\n  *\" config --format json\") cat \"$MCUI_TEST_CONFIG\" ;;\n  *\" ps -q mc\") echo running-container ;;\n  *\"inspect --format\"*) echo running ;;\n  *) exit 1 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if response := selectSubpack(); response.Code != 409 {
+		t.Fatalf("running server changed: %d %s", response.Code, response.Body.String())
+	}
+	refs, err := readPackRefs(filepath.Join(world, "world_behavior_packs.json"))
+	if err != nil || len(refs) != 1 || refs[0].Subpack != "" {
+		t.Fatalf("rejected selection modified world: %+v %v", refs, err)
+	}
+}

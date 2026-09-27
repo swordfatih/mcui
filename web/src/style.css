@@ -590,6 +590,10 @@ footer span {
 .pack-detail-info dl div { display: grid; grid-template-columns: 140px minmax(0,1fr); gap: 12px; padding: 13px 0; border-top: 1px solid #405443; }
 .pack-detail-info dt { color: #a5b3a3; }
 .pack-detail-info dd { margin: 0; overflow-wrap: anywhere; }
+.pack-detail-subpacks h2 { margin-top: 0; }
+.pack-subpack-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.pack-subpack-controls label { display: grid; gap: 6px; flex: 1 1 240px; color: #c5d5c4; font-size: 12px; }
+.pack-subpack-controls select { width: 100%; min-height: 42px; border: 1px solid #4b634c; border-radius: 10px; background: #17251b; color: #e4f0df; }
 .pack-detail-danger { border-color: #77534f; }
 .pack-delete-button { border: 1px solid #b1766e; border-radius: 8px; background: #703d38; color: #ffe5df; padding: 10px 14px; font-weight: 700; }
 .pack-delete-button:hover { background: #865047; }
