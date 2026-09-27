@@ -314,7 +314,7 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ext := strings.ToLower(filepath.Ext(rel))
-		if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".gif" && ext != ".webp" {
+		if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".gif" && ext != ".webp" && ext != ".tga" {
 			bad(w, 415, "Preview unavailable")
 			return
 		}
@@ -339,7 +339,18 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 			bad(w, 404, "Asset not found")
 			return
 		}
+		if ext == ".tga" {
+			if info.Size() > 64<<20 {
+				bad(w, 413, "Image is too large to preview")
+				return
+			}
+			if err := serveTGAPreview(w, path); err != nil {
+				bad(w, 415, err.Error())
+			}
+			return
+		}
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.ServeFile(w, r, path)
 		return
 	}

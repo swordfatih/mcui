@@ -675,6 +675,57 @@ footer span {
 .pack-asset-copy small { color: #a5b3a3; }
 .pack-asset-present { color: #c1dcae; }
 .pack-asset-archived { color: #e4b997; }
+.pack-assets-topbar, .pack-assets-filters { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.pack-assets-topbar > label, .pack-assets-filters > label { display: grid; gap: 6px; color: #aec4ab; font-size: 12px; }
+.pack-assets-topbar > label:first-child { flex: 0 1 290px; }
+.pack-assets-topbar select, .pack-assets-filters select { min-height: 42px; border: 1px solid #4b634c; border-radius: 10px; background: #17251b; color: #e4f0df; }
+.pack-assets-search { display: flex !important; flex: 1 1 260px; align-items: center; gap: 8px !important; min-height: 42px; padding: 0 12px; border: 1px solid #4b634c; border-radius: 10px; background: #17251b; }
+.pack-assets-search:focus-within { border-color: #a2cc98; box-shadow: 0 0 0 3px #8fc5862e; }
+.pack-assets-search > span { font-size: 22px; }
+.pack-assets-search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: #e4f0df; }
+.pack-assets-search button { border: 0; background: transparent; color: #bad1b4; font-size: 20px; cursor: pointer; }
+.pack-assets-sections { display: flex; gap: 7px; margin-top: 20px; border-bottom: 1px solid #3f5642; }
+.pack-assets-sections button { display: flex; align-items: center; gap: 8px; padding: 10px 15px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #aabea7; cursor: pointer; font-weight: 600; }
+.pack-assets-sections button.active { border-bottom-color: #a4d094; color: #e4f2df; }
+.pack-assets-sections span { padding: 2px 7px; border-radius: 999px; background: #2b402e; font-size: 11px; }
+.pack-assets-filters { margin-top: 14px; }
+.pack-assets-filters > label { flex: 0 1 220px; }
+.pack-assets-filters > span { margin-left: auto; color: #9eb69a; font-size: 12px; }
+.pack-assets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; margin-top: 16px; }
+.pack-asset-card { min-width: 0; overflow: hidden; border: 1px solid #3e5541; border-radius: 15px; background: #19281d; transition: border-color .15s, transform .15s, box-shadow .15s; }
+.pack-asset-card:hover { border-color: #73916d; transform: translateY(-2px); }
+.pack-asset-card.is-selected { border-color: #a5ce96; box-shadow: 0 0 0 2px #a5ce9633; }
+.pack-asset-card.is-archived .pack-asset-image img { opacity: .55; }
+.pack-asset-image { position: relative; display: grid; place-items: center; width: 100%; height: 168px; padding: 14px; border: 0; background: linear-gradient(45deg, #1c2b20 25%, #223126 25%, #223126 50%, #1c2b20 50%, #1c2b20 75%, #223126 75%); background-size: 20px 20px; cursor: zoom-in; }
+.pack-asset-image img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: pixelated; }
+.pack-asset-zoom { position: absolute; right: 10px; top: 8px; color: #e7f4e1; font-size: 17px; text-shadow: 0 1px 4px #000; }
+.pack-asset-card-content { display: grid; gap: 5px; padding: 12px; }
+.pack-asset-card-content > strong, .pack-asset-card-content > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pack-asset-card-content > small { color: #94aa94; font-size: 11px; }
+.pack-asset-card-foot, .pack-asset-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pack-asset-card-foot { margin-top: 5px; color: #9caf9a; font-size: 11px; }
+.pack-asset-card-actions { margin-top: 8px; }
+.pack-asset-card-actions button, .pack-asset-other-row button { padding: 7px 10px; border: 1px solid #507154; border-radius: 8px; background: #29432d; color: #d9eed4; cursor: pointer; font-size: 12px; }
+.pack-asset-card-actions button:last-child { background: transparent; }
+.pack-asset-card-actions button.selected { background: #436a45; }
+.pack-asset-card-actions button:disabled, .pack-asset-other-row button:disabled { opacity: .5; cursor: not-allowed; }
+.pack-assets-other { display: grid; gap: 6px; margin-top: 16px; }
+.pack-asset-other-row { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 12px; border: 1px solid #3e5541; border-radius: 10px; }
+.pack-asset-other-row > div { display: grid; min-width: 0; gap: 3px; }
+.pack-asset-other-row strong, .pack-asset-other-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pack-asset-other-row small { color: #91a890; }
+.pack-asset-type { padding: 7px 4px; border-radius: 7px; background: #2a3b2b; color: #c4d8c0; font-size: 10px; text-align: center; }
+.pack-asset-detail { display: grid; gap: 14px; width: min(100%, 900px); max-height: 90vh; }
+.pack-asset-detail header, .pack-asset-detail footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pack-asset-detail h3 { margin: 0; }
+.pack-asset-detail header p { margin: 4px 0 0; color: #9db499; overflow-wrap: anywhere; font-size: 12px; }
+.pack-asset-detail-image { display: grid; place-items: center; min-height: 200px; max-height: 65vh; overflow: auto; border-radius: 12px; background: #132017; }
+.pack-asset-detail-image img { max-width: 100%; max-height: 65vh; object-fit: contain; image-rendering: pixelated; }
+.pack-asset-confirm { display: grid; gap: 10px; width: min(100%, 560px); max-height: 80vh; overflow: auto; }
+.pack-asset-confirm h3, .pack-asset-confirm p { margin: 0; }
+.pack-asset-confirm p, .pack-asset-confirm small { color: #bdd0b9; }
+.pack-asset-confirm > div { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+@media(max-width:600px) { .pack-assets-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; } .pack-asset-image { height: 125px; } .pack-asset-other-row { grid-template-columns: 46px minmax(0, 1fr) auto; } .pack-asset-other-row > span:nth-of-type(2) { display: none; } }
 .pack-save-row p { max-width: 580px; margin: 0; color: #a5b3a3; font-size: 12px; line-height: 1.5; }
 .pack-source-tabs { display: inline-flex; padding: 4px; gap: 4px; border: 1px solid #405443; border-radius: 10px; background: #17251b; margin: 8px 0 18px; }
 .pack-source-tabs button { border: 0; border-radius: 7px; padding: 9px 14px; background: transparent; color: #b8c9b4; font-weight: 700; }
