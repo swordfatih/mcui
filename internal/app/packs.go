@@ -42,6 +42,7 @@ type packInfo struct {
 	Active    bool            `json:"active"`
 	Order     int             `json:"order"`
 	LoadState string          `json:"loadState"`
+	BuiltIn   bool            `json:"builtIn"`
 }
 type packListing struct {
 	Packs   []packInfo `json:"packs"`
@@ -140,6 +141,44 @@ func readPackManifest(path string) (packManifest, error) {
 	}
 	return manifest, nil
 }
+func resolvedPackName(folder, key string) string {
+	if key == "" {
+		return folder
+	}
+	if !strings.Contains(key, ".") {
+		return key
+	}
+	for _, language := range []string{"en_US.lang", "en_GB.lang"} {
+		content, err := os.ReadFile(filepath.Join(folder, "texts", language))
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(content), "\n") {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
+			if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+				continue
+			}
+			name, value, ok := strings.Cut(line, "=")
+			if ok && strings.TrimSpace(name) == key && strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return filepath.Base(folder)
+}
+func builtInPack(name, folder string) bool {
+	lowerName, lowerFolder := strings.ToLower(name), strings.ToLower(folder)
+	return strings.HasPrefix(lowerName, "resourcepack.vanilla") || strings.HasPrefix(lowerName, "resourcepack.editor") || strings.HasPrefix(lowerName, "@minecraft/") || strings.HasPrefix(lowerFolder, "vanilla") || strings.HasPrefix(lowerFolder, "editor")
+}
+func samePackVersion(a, b json.RawMessage) bool {
+	var left, right any
+	if json.Unmarshal(a, &left) != nil || json.Unmarshal(b, &right) != nil {
+		return false
+	}
+	encodedLeft, _ := json.Marshal(left)
+	encodedRight, _ := json.Marshal(right)
+	return string(encodedLeft) == string(encodedRight)
+}
 func packKind(manifest packManifest) string {
 	for _, module := range manifest.Modules {
 		if module.Type == "resources" {
@@ -183,12 +222,10 @@ func (a *API) listPacks(name string) (packListing, error) {
 			if err != nil || packKind(manifest) != kind {
 				continue
 			}
-			info := packInfo{ID: packID(kind, entry.Name()), Name: manifest.Header.Name, UUID: manifest.Header.UUID, Version: manifest.Header.Version, Kind: kind, Order: -1, LoadState: "unverified"}
-			if info.Name == "" {
-				info.Name = entry.Name()
-			}
+			folder := filepath.Join(data, packFolder(kind), entry.Name())
+			info := packInfo{ID: packID(kind, entry.Name()), Name: resolvedPackName(folder, manifest.Header.Name), UUID: manifest.Header.UUID, Version: manifest.Header.Version, Kind: kind, Order: -1, LoadState: "unverified", BuiltIn: builtInPack(manifest.Header.Name, entry.Name())}
 			for i, ref := range refs {
-				if strings.EqualFold(ref.PackID, info.UUID) {
+				if strings.EqualFold(ref.PackID, info.UUID) && samePackVersion(ref.Version, info.Version) {
 					info.Active = true
 					info.Order = i
 					break

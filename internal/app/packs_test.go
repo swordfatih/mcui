@@ -43,3 +43,22 @@ func TestPackReferencesKeepOrderAndVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPackNameLocalizationAndVersionMatching(t *testing.T) {
+	folder := filepath.Join(t.TempDir(), "pack-folder")
+	if err := os.MkdirAll(filepath.Join(folder, "texts"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, "texts", "en_US.lang"), []byte("pack.name=Real Resource Pack\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolvedPackName(folder, "pack.name"); got != "Real Resource Pack" {
+		t.Fatalf("resolved name = %q", got)
+	}
+	if samePackVersion([]byte(`[1,2,3]`), []byte(`[1,2,4]`)) {
+		t.Fatal("different versions matched")
+	}
+	if !samePackVersion([]byte(`[1, 2, 3]`), []byte(`[1,2,3]`)) {
+		t.Fatal("same versions did not match")
+	}
+}

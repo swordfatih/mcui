@@ -102,6 +102,10 @@ go test ./...
 cd web && npm ci && npm run build
 ```
 
+## Pack management
+
+The Bedrock **Resources** tab lists installed resource and behavior packs, resolves localized names from `texts/en_US.lang`, and shows activation from the world's `world_resource_packs.json` and `world_behavior_packs.json`. Inactive packs and Bedrock's versioned built-in packs are collapsed. Active packs can be reordered with a mouse, touch, or keyboard; **Save changes** writes the two JSON files and does not restart the server. Restart the server to load the changes. The tab checks recent Pack Stack lines in Docker logs for live load evidence. Upload a `.zip`, `.mcaddon`, `.mcpack`, `.tar.gz`, or `.tgz` file, or provide a public HTTPS download URL. Installations extract into a temporary folder and remove the archive afterward. Pack management requires a bind-mounted `/data` folder containing exactly one world.
+
 ## Future design
 
-The Bedrock **Resources** tab lists installed resource and behavior packs from their manifests, shows activation from the world's `world_resource_packs.json` and `world_behavior_packs.json`, and checks the latest Pack Stack lines in Docker logs. Drag a pack or use the arrow buttons to change its order, then save and restart the server. Upload a `.zip`, `.mcaddon`, `.mcpack`, `.tar.gz`, or `.tgz` file, or provide a public HTTPS download URL. Installations extract into a temporary folder and remove the archive afterward. Pack management requires a bind-mounted `/data` folder containing exactly one world. Backup capture includes the server's data folder and Compose file. A future restore flow should stop the server first, and retention needs a separate policy. Java may alternatively use `itzg/mc-backup`, but that image does not support Bedrock. None of that requires a database for the current server inventory.
+Backup capture includes the server's data folder and Compose file. A future restore flow should stop the server first, and retention needs a separate policy. Java may alternatively use `itzg/mc-backup`, but that image does not support Bedrock. None of that requires a database for the current server inventory.
