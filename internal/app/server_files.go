@@ -157,7 +157,7 @@ func protectedServerFile(rel string) bool {
 	if rel == "" || rel == ".mcui" || strings.HasPrefix(rel, ".mcui/") || rel == "bedrock_data" {
 		return true
 	}
-	if !strings.Contains(rel, "/") && (strings.HasPrefix(rel, "compose.") || strings.HasPrefix(rel, "docker-compose.") || rel == "last-backup.json") {
+	if !strings.Contains(rel, "/") && (strings.HasPrefix(rel, "compose.") || strings.HasPrefix(rel, "docker-compose.")) {
 		return true
 	}
 	parts := strings.Split(rel, "/")

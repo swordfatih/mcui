@@ -258,6 +258,17 @@ label input:not([type=checkbox]) {
   outline: none;
 }
 
+.create label select {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 11px 12px;
+  background: #101a13;
+  border: 1px solid #435446;
+  color: #f2f6f0;
+  border-radius: 8px;
+}
+
 label input:focus {
   border-color: #b2e688;
 }

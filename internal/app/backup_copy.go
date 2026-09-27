@@ -13,7 +13,7 @@ func copyBackupTree(src, dst, edition string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dst, 0700); err != nil {
+	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
 	}
 	root, err := os.OpenRoot(src)
@@ -33,7 +33,7 @@ func copyPreservedFromRoot(root *os.Root, rel, dst string) error {
 	if !assetRelative(rel) {
 		return fs.ErrInvalid
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
 	in, err := root.Open(rel)

@@ -36,7 +36,10 @@ type CreateRequest struct {
 	Edition    string `json:"edition"`
 	Port       int    `json:"port"`
 	WorldPath  string `json:"worldPath"`
+	BackupPath string `json:"backupPath"`
+	BackupURL  string `json:"backupUrl"`
 	AcceptEULA bool   `json:"acceptEula"`
+	backupFile string
 }
 type API struct {
 	Root   string
@@ -196,6 +199,9 @@ func Serve(addr, root string) error {
 	if err := os.MkdirAll(root, 0755); err != nil {
 		return err
 	}
+	if err := removeLegacyBackupMarkers(root); err != nil {
+		return err
+	}
 	a := &API{Root: root}
 	backup, err := newBackupManager(a)
 	if err != nil {
@@ -258,14 +264,25 @@ func (a *API) servers(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, out)
 	case http.MethodPost:
 		var req CreateRequest
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-		dec := json.NewDecoder(r.Body)
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&req); err != nil {
-			bad(w, 400, "Invalid JSON request")
-			return
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+			var cleanup func()
+			var err error
+			req, cleanup, err = parseCreateMultipart(w, r)
+			if err != nil {
+				bad(w, 400, err.Error())
+				return
+			}
+			defer cleanup()
+		} else {
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			dec := json.NewDecoder(r.Body)
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&req); err != nil {
+				bad(w, 400, "Invalid JSON request")
+				return
+			}
 		}
-		if err := a.create(req); err != nil {
+		if err := a.createWithContext(r.Context(), req); err != nil {
 			bad(w, 400, err.Error())
 			return
 		}
@@ -362,8 +379,9 @@ func (a *API) readServer(name string) (Server, error) {
 	return server, err
 }
 func (a *API) create(req CreateRequest) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	return a.createWithContext(context.Background(), req)
+}
+func (a *API) createWithContext(ctx context.Context, req CreateRequest) error {
 	if !safeFolderName(req.Name) {
 		return errors.New("Name must be a single folder name")
 	}
@@ -379,6 +397,30 @@ func (a *API) create(req CreateRequest) error {
 	if req.WorldPath != "" && !filepath.IsAbs(req.WorldPath) {
 		return errors.New("World path must be absolute")
 	}
+	if req.BackupPath != "" && !filepath.IsAbs(req.BackupPath) {
+		return errors.New("Backup path must be absolute")
+	}
+	sources := 0
+	for _, value := range []string{req.WorldPath, req.BackupPath, req.BackupURL, req.backupFile} {
+		if value != "" {
+			sources++
+		}
+	}
+	if sources > 1 {
+		return errors.New("Choose only one world or backup source")
+	}
+	var backupData, worldName string
+	cleanup := func() {}
+	if sources == 1 && (req.BackupPath != "" || req.BackupURL != "" || req.backupFile != "") {
+		var err error
+		backupData, worldName, cleanup, err = a.prepareBackupImport(ctx, req)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	dir := filepath.Join(a.Root, req.Name)
 	if err := os.Mkdir(dir, 0755); err != nil {
 		if os.IsExist(err) {
@@ -400,6 +442,10 @@ func (a *API) create(req CreateRequest) error {
 		if err := importWorld(req.WorldPath, data, req.Edition); err != nil {
 			return err
 		}
+	} else if backupData != "" {
+		if err := copyBackupTree(backupData, data, req.Edition); err != nil {
+			return err
+		}
 	}
 	image, target, protocol := "itzg/minecraft-server:latest", 25565, ""
 	if req.Edition == "bedrock" {
@@ -407,7 +453,10 @@ func (a *API) create(req CreateRequest) error {
 	}
 	compose := fmt.Sprintf("services:\n  mc:\n    image: %s\n    environment:\n      EULA: \"TRUE\"\n", image)
 	if req.Edition == "bedrock" {
-		compose += "      LEVEL_NAME: \"world\"\n    stdin_open: true\n    tty: true\n"
+		if worldName == "" {
+			worldName = "world"
+		}
+		compose += fmt.Sprintf("      LEVEL_NAME: %q\n    stdin_open: true\n    tty: true\n", worldName)
 	}
 	compose += fmt.Sprintf("    ports:\n      - \"%d:%d%s\"\n    volumes:\n      - ./data:/data\n    restart: unless-stopped\n    stop_grace_period: 2m\n", req.Port, target, protocol)
 	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(compose), 0644); err != nil {

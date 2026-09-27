@@ -49,26 +49,27 @@ MCUI uploads a standard, unencrypted `.tar.gz` archive for each backup to `<remo
 
 The `backup/` directory is mounted into MCUI and ignored by Git and the image build. It must be writable because rclone may refresh its OAuth token. The Compose setup installs rclone in the MCUI image. For a native Go run, install rclone locally and set `MCUI_BACKUP_DIR` to the absolute path of `backup/`.
 
-Click **Back up now** on a server for an on-demand archive. `MCUI_BACKUP_INTERVAL` schedules backups for every server; the default is `24h`, and `0` disables scheduling. Jobs run one at a time. The interval starts when MCUI starts. MCUI stops a running server, finds its `/data` mount through `docker compose config`, and stages only persistent files under `servers/.backup-stage/`. Bind mount sources must be accessible inside MCUI; named volumes are copied through the server container before filtering. MCUI then restarts a server that was running before compressing and uploading the copy. Ensure there is enough free space for one full server copy and its compressed archive; named-volume capture briefly needs room for an unfiltered copy as well. If the server was already stopped, MCUI leaves it stopped. The dashboard shows job progress and the last successful archive filename; the latter is also stored in `servers/<name>/last-backup.json`. A failed capture or upload is reported in the dashboard. Existing encrypted restic repositories are left on Drive; MCUI does not delete or convert them. Restoring and deleting old backups are outside this version's scope.
+Click **Back up now** on a server for an on-demand archive. `MCUI_BACKUP_INTERVAL` schedules backups for every server; the default is `24h`, and `0` disables scheduling. Jobs run one at a time. The interval starts when MCUI starts. MCUI stops a running server, finds its `/data` mount through `docker compose config`, and stages only persistent files under `servers/.backup-stage/`. Bind mount sources must be accessible inside MCUI; named volumes are copied through the server container before filtering. MCUI then restarts a server that was running before compressing and uploading the copy. Ensure there is enough free space for one full server copy and its compressed archive; named-volume capture briefly needs room for an unfiltered copy as well. If the server was already stopped, MCUI leaves it stopped. The dashboard shows job progress. After a restart, MCUI lists the configured Google Drive folder to find the latest archive and caches that lookup for one minute. It no longer creates `last-backup.json`; old copies of that file are removed at startup. A failed capture or upload is reported in the dashboard. Existing encrypted restic repositories are left on Drive; MCUI does not delete or convert them. Deleting old backups is outside this version's scope.
 
 ## Create a server
 
 1. Pick Bedrock (default) or Java, a server folder name, and an unused host port. Defaults are `19132/udp` for Bedrock and `25565/tcp` for Java.
-2. Optionally supply an absolute path on the **host** to an existing world directory, `.zip`, `.tar.gz`, or `.tgz` archive. If MCUI runs in Docker, the path must also be mounted into the MCUI container; the `servers` mount is already available. For imports elsewhere, add a read-only bind mount to the root `docker-compose.yaml`.
+2. Optionally import an existing world or an MCUI backup. A world path must be an absolute path on the **host** to a directory, `.zip`, `.tar.gz`, or `.tgz` archive. A backup can be uploaded from your browser, supplied as an absolute host path, or fetched using a Google Drive file sharing link. Host paths must also be mounted into the MCUI container; the `servers` mount is already available. For imports elsewhere, add a read-only bind mount to the root `docker-compose.yaml`. Drive links use the configured rclone account, which must have access to the file.
 3. Confirm the Minecraft EULA, create the server, then click Start. The first start may take a while because it downloads the image and Minecraft server files.
 
 A valid world has a `level.dat` file. Archives may contain a single enclosing folder. MCUI rejects links, special files, absolute or parent-traversal archive entries, multiple worlds, and archives whose declared extracted contents exceed 4 GiB. Imported worlds are copied; the source stays in place. Bedrock worlds go to `data/worlds/world`, with `LEVEL_NAME=world`; Java worlds go to `data/world`.
 
-Each server has this layout after its first successful backup:
+Backup imports accept `.tar.gz` or `.tgz` archives containing a `data/` folder. MCUI copies only persistent user files using the reset and backup policy, so older archives that also contain Compose, built-in packs, or runtime files are filtered. A new Compose file is generated from the chosen edition, name, and port. For a Bedrock backup with one nondefault world folder, MCUI sets `LEVEL_NAME` to that folder. Choose the correct edition when importing. Google Drive file links support `https://drive.google.com/file/d/<id>/...` and `https://drive.google.com/open?id=<id>`; the configured account must be able to read the file. Browser uploads have a 4 GiB request limit. If MCUI is behind a reverse proxy, configure that proxy to permit the intended upload size.
+
+Each server has this layout:
 
 ```text
 servers/server1/
 ├── compose.yaml
-├── data/
-└── last-backup.json
+└── data/
 ```
 
-`last-backup.json` records the last successful archive filename and time. Each Google Drive archive contains persistent user files in `data/`; the Compose file stays in the server directory and must be retained separately when moving to another host. `last-backup.json` appears after the first successful backup. MCUI has no database. It uses `docker compose config` to find a single service using an itzg Minecraft image; the service name and published port can vary, and Docker Compose's standard Compose filenames are supported. The dashboard does not delete servers in this version.
+Each Google Drive archive contains persistent user files in `data/`; the Compose file stays in the server directory and must be retained separately when moving to another host. MCUI has no database. It uses `docker compose config` to find a single service using an itzg Minecraft image; the service name and published port can vary, and Docker Compose's standard Compose filenames are supported. The dashboard does not delete servers in this version.
 
 MCUI uses [itzg/minecraft-bedrock-server](https://github.com/itzg/docker-minecraft-bedrock-server) for Bedrock and [itzg/minecraft-server](https://github.com/itzg/docker-minecraft-server) for Java. Both images mount the server's `data/` at `/data`.
 
@@ -79,7 +80,7 @@ JSON requests and responses:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/servers` | List `{name, edition, status}` objects |
-| `POST` | `/api/servers` | Create from `{name, edition, port, worldPath, acceptEula}` |
+| `POST` | `/api/servers` | Create from JSON `{name, edition, port, worldPath, backupPath, backupUrl, acceptEula}` or multipart fields plus `backupFile` |
 | `POST` | `/api/servers/{name}/start` | Run `docker compose up -d` |
 | `POST` | `/api/servers/{name}/stop` | Run `docker compose stop` |
 | `GET` | `/api/backups/config` | Backup readiness and schedule |
@@ -95,7 +96,7 @@ JSON requests and responses:
 | `GET` | `/api/server-reset/{name}` | Review files kept and deleted, with a revision token |
 | `POST` | `/api/server-reset/{name}` | Reset stopped server data with `{confirm, revision}` |
 
-`edition` is `bedrock` or `java`; `worldPath` may be empty. Errors have an `error` string. Status is polled every five seconds and may be `running`, `stopped`, another Docker state, or `unknown` if Docker cannot be queried. Start and stop errors are returned to the UI.
+`edition` is `bedrock` or `java`. Select at most one of `worldPath`, `backupPath`, `backupUrl`, and `backupFile`. Errors have an `error` string. Status is polled every five seconds and may be `running`, `stopped`, another Docker state, or `unknown` if Docker cannot be queried. Start and stop errors are returned to the UI.
 
 ## Build and test
 
@@ -114,4 +115,4 @@ The **Files** tab browses the server directory, supports file upload, file downl
 
 ## Future design
 
-Backup capture includes persistent user files from the server's data folder. A future restore flow should stop the server first, and retention needs a separate policy. Java may alternatively use `itzg/mc-backup`, but that image does not support Bedrock. None of that requires a database for the current server inventory.
+Backup capture includes persistent user files from the server's data folder. Retention needs a separate policy. Java may alternatively use `itzg/mc-backup`, but that image does not support Bedrock. None of that requires a database for the current server inventory.

@@ -67,8 +67,10 @@ case "$1" in
 esac
 `
 	rcloneScript := `#!/bin/sh
-echo upload >> "$MCUI_TEST_OPERATIONS"
-cp "$4" "$MCUI_TEST_ARCHIVE"
+case "$1" in
+  lsf) if [ -f "$MCUI_TEST_REMOTE_LIST" ]; then cat "$MCUI_TEST_REMOTE_LIST"; fi ;;
+  copyto) echo upload >> "$MCUI_TEST_OPERATIONS"; cp "$4" "$MCUI_TEST_ARCHIVE"; basename "$5" > "$MCUI_TEST_REMOTE_LIST" ;;
+esac
 `
 	for name, content := range map[string]string{"docker": dockerScript, "rclone": rcloneScript} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(content), 0755); err != nil {
@@ -79,6 +81,7 @@ cp "$4" "$MCUI_TEST_ARCHIVE"
 	t.Setenv("MCUI_TEST_OPERATIONS", operations)
 	archive := filepath.Join(bin, "uploaded.tar.gz")
 	t.Setenv("MCUI_TEST_ARCHIVE", archive)
+	t.Setenv("MCUI_TEST_REMOTE_LIST", filepath.Join(bin, "remote-list"))
 	manager, err := newBackupManager(a)
 	if err != nil {
 		t.Fatal(err)
@@ -153,15 +156,15 @@ cp "$4" "$MCUI_TEST_ARCHIVE"
 	if _, err := os.Stat(filepath.Join(root, ".backup-stage", "bedrock-home")); !os.IsNotExist(err) {
 		t.Fatalf("staging directory remains: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "bedrock-home", "last-backup.json")); err != nil {
-		t.Fatalf("server backup marker missing: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "bedrock-home", "last-backup.json")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected local backup marker: %v", err)
 	}
 	nextManager, err := newBackupManager(a)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := nextManager.state("bedrock-home"); got.State != "complete" || !strings.HasSuffix(got.SnapshotID, ".tar.gz") {
-		t.Fatalf("last backup was not persisted: %+v", got)
+		t.Fatalf("last backup was not found on Drive: %+v", got)
 	}
 }
 
@@ -249,6 +252,40 @@ func TestCopyBackupTreeKeepsPersistentData(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(destination, "worlds/world/Backups/old.dat")); err != nil {
 		t.Fatalf("world data missing: %v", err)
+	}
+}
+
+func TestLatestBackupFromDriveListing(t *testing.T) {
+	listing := "other-20260927T120000.000000000Z.tar.gz\nworld-20260926T120000.000000000Z.tar.gz\nworld-20260927T120000.000000000Z.tar.gz\nworld-bad.tar.gz\n"
+	state := latestBackupFromListing("world", listing)
+	if state.State != "complete" || state.SnapshotID != "world-20260927T120000.000000000Z.tar.gz" || state.CompletedAt == nil {
+		t.Fatalf("wrong latest Drive backup: %+v", state)
+	}
+	if got := latestBackupFromListing("missing", listing); got.State != "idle" {
+		t.Fatalf("unexpected backup: %+v", got)
+	}
+}
+
+func TestRemoveLegacyBackupMarker(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "home")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "last-backup.json"), []byte(`{"state":"complete"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services: {}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeLegacyBackupMarkers(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "last-backup.json")); !os.IsNotExist(err) {
+		t.Fatalf("legacy marker remains: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "compose.yaml")); err != nil {
+		t.Fatal(err)
 	}
 }
 

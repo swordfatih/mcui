@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -33,11 +32,13 @@ type BackupConfig struct {
 	Interval time.Duration
 }
 type BackupManager struct {
-	api    *API
-	config BackupConfig
-	mu     sync.Mutex
-	states map[string]BackupState
-	slots  chan struct{}
+	api           *API
+	config        BackupConfig
+	mu            sync.Mutex
+	states        map[string]BackupState
+	remoteStates  map[string]BackupState
+	remoteChecked map[string]time.Time
+	slots         chan struct{}
 }
 
 var validRemote = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -86,7 +87,7 @@ func newBackupManager(a *API) (*BackupManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &BackupManager{api: a, config: config, states: map[string]BackupState{}, slots: make(chan struct{}, 1)}, nil
+	return &BackupManager{api: a, config: config, states: map[string]BackupState{}, remoteStates: map[string]BackupState{}, remoteChecked: map[string]time.Time{}, slots: make(chan struct{}, 1)}, nil
 }
 func (b *BackupManager) ready() bool {
 	if _, err := exec.LookPath("rclone"); err != nil {
@@ -123,18 +124,72 @@ func hasDriveRemote(config, remote string) bool {
 func (b *BackupManager) repo(name string) string {
 	return b.config.Remote + ":" + b.config.Path + "/" + name
 }
+func removeLegacyBackupMarkers(root string) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	a := API{Root: root}
+	for _, entry := range entries {
+		if !entry.IsDir() || !safeFolderName(entry.Name()) {
+			continue
+		}
+		if _, err := a.composeFile(entry.Name()); err != nil {
+			continue
+		}
+		path := filepath.Join(root, entry.Name(), "last-backup.json")
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
 func (b *BackupManager) state(name string) BackupState {
 	b.mu.Lock()
 	s, ok := b.states[name]
+	remote, cached := b.remoteStates[name]
+	checked := b.remoteChecked[name]
 	b.mu.Unlock()
 	if ok {
 		return s
 	}
-	data, err := os.ReadFile(filepath.Join(b.api.Root, name, "last-backup.json"))
-	if err == nil && json.Unmarshal(data, &s) == nil && s.State == "complete" {
-		return s
+	if cached && time.Since(checked) < time.Minute {
+		return remote
 	}
-	return BackupState{State: "idle"}
+	if !b.ready() {
+		return BackupState{State: "idle"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "rclone", "lsf", "--config", filepath.Join(b.config.Dir, "rclone.conf"), "--files-only", b.repo(name)).Output()
+	if err == nil {
+		remote = latestBackupFromListing(name, string(out))
+	} else {
+		remote = BackupState{State: "idle"}
+	}
+	b.mu.Lock()
+	b.remoteStates[name] = remote
+	b.remoteChecked[name] = time.Now()
+	b.mu.Unlock()
+	return remote
+}
+func latestBackupFromListing(name, listing string) BackupState {
+	latest := BackupState{State: "idle"}
+	var newest time.Time
+	for _, filename := range strings.Split(listing, "\n") {
+		stamp, ok := strings.CutPrefix(strings.TrimSpace(filename), name+"-")
+		if !ok || !strings.HasSuffix(stamp, ".tar.gz") {
+			continue
+		}
+		stamp = strings.TrimSuffix(stamp, ".tar.gz")
+		when, err := time.Parse("20060102T150405.000000000Z", stamp)
+		if err != nil || !when.After(newest) {
+			continue
+		}
+		newest = when
+		latest = BackupState{State: "complete", CompletedAt: &when, SnapshotID: strings.TrimSpace(filename)}
+	}
+	return latest
 }
 func (b *BackupManager) capturing(name string) bool {
 	s := b.state(name)
@@ -145,17 +200,17 @@ func (b *BackupManager) active(name string) bool {
 	return s.State == "capturing" || s.State == "uploading" || s.State == "queued"
 }
 func (b *BackupManager) setState(name string, s BackupState) {
-	if s.State == "complete" {
-		dir := filepath.Join(b.api.Root, name)
-		if data, err := json.Marshal(s); err == nil {
-			tmp := filepath.Join(dir, "last-backup.json.tmp")
-			if err := os.WriteFile(tmp, data, 0600); err == nil {
-				_ = os.Rename(tmp, filepath.Join(dir, "last-backup.json"))
-			}
+	b.mu.Lock()
+	if s.State == "failed" {
+		if last := b.remoteStates[name]; last.State == "complete" {
+			s.SnapshotID = last.SnapshotID
 		}
 	}
-	b.mu.Lock()
 	b.states[name] = s
+	if s.State == "complete" {
+		b.remoteStates[name] = s
+		b.remoteChecked[name] = time.Now()
+	}
 	b.mu.Unlock()
 }
 func (b *BackupManager) start(name string) error {
