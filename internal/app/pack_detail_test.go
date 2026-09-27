@@ -243,6 +243,14 @@ func TestPackDetailSelectsSubpackForResourceAndBehavior(t *testing.T) {
 				if get.Code != 200 || json.Unmarshal(get.Body.Bytes(), &current) != nil || current.SelectedSubpack != sub {
 					t.Fatalf("detail selection: %d %s", get.Code, get.Body.String())
 				}
+				if kind == "resource" && sub == "" {
+					assets := httptest.NewRecorder()
+					a.packAssets(assets, httptest.NewRequest("GET", "/api/pack-assets/server/resource/"+folder, nil))
+					var listing assetListing
+					if assets.Code != 200 || json.Unmarshal(assets.Body.Bytes(), &listing) != nil || !listing.PackActive || listing.SubpackConfigured || listing.Layers[0].Selected {
+						t.Fatalf("automatic subpack shown as explicit: %d %s", assets.Code, assets.Body.String())
+					}
+				}
 			}
 		})
 	}

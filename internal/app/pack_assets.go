@@ -36,8 +36,10 @@ type assetLayer struct {
 	Selected bool   `json:"selected"`
 }
 type assetListing struct {
-	Layers []assetLayer  `json:"layers"`
-	Assets []assetRecord `json:"assets"`
+	Layers            []assetLayer  `json:"layers"`
+	Assets            []assetRecord `json:"assets"`
+	PackActive        bool          `json:"packActive"`
+	SubpackConfigured bool          `json:"subpackConfigured"`
 }
 type assetChange struct {
 	Action  string   `json:"action"`
@@ -317,7 +319,7 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	layers[0].Selected = packActive && selected == ""
+	layers[0].Selected = packActive && selected == "" && len(manifest.Subpacks) == 0
 	for _, sub := range manifest.Subpacks {
 		if !safeFolderName(sub.FolderName) || allowed[sub.FolderName] {
 			continue
@@ -392,7 +394,7 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet {
-		result := assetListing{Layers: layers, Assets: []assetRecord{}}
+		result := assetListing{Layers: layers, Assets: []assetRecord{}, PackActive: packActive, SubpackConfigured: selected != ""}
 		for _, layer := range layers {
 			layerDir, _ := assetLayerPath(packDir, layer.ID)
 			err := filepath.WalkDir(layerDir, func(path string, entry fs.DirEntry, walkErr error) error {

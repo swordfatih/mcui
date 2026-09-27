@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,6 +57,56 @@ func TestPackActivationUsesUUIDWithVersionFallback(t *testing.T) {
 	applyPackRefs(multiple, 0, refs)
 	if multiple[0].Active || !multiple[1].Active {
 		t.Fatalf("wrong version active: %+v", multiple)
+	}
+}
+
+func TestPackOrderSavePreservesSubpackAcrossVersionFormats(t *testing.T) {
+	a, rp, _, world := setupPackUpdateServer(t)
+	manifest := updateManifest("Actions Resource", updateResourceUUID, "resources", `"1.1.31"`)
+	if err := os.WriteFile(filepath.Join(rp, "manifest.json"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	refsPath := filepath.Join(world, "world_resource_packs.json")
+	if err := writePackRefs(refsPath, []packRef{{PackID: updateResourceUUID, Version: json.RawMessage(`[1,1,31]`), Subpack: "SP2"}}); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest("PUT", "/api/server-details/server/packs", strings.NewReader(`{"resource":["resource/actions-resource"],"behavior":["behavior/actions-behavior"]}`))
+	response := httptest.NewRecorder()
+	a.packsHandler(response, request, "server")
+	if response.Code != 200 {
+		t.Fatalf("save order: %d %s", response.Code, response.Body.String())
+	}
+	refs, err := readPackRefs(refsPath)
+	if err != nil || len(refs) != 1 || refs[0].Subpack != "SP2" || !samePackVersion(refs[0].Version, json.RawMessage(`"1.1.31"`)) {
+		t.Fatalf("save lost selection: %+v %v", refs, err)
+	}
+}
+
+func TestPackOrderSavePreservesSubpackWhenVersionReferenceIsStale(t *testing.T) {
+	a, _, bp, world := setupPackUpdateServer(t)
+	if err := os.WriteFile(filepath.Join(bp, "manifest.json"), []byte(updateManifest("Flash", updateBehaviorUUID, "data", `[1,0,1]`)), 0644); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(filepath.Dir(bp), "flash-other-version")
+	if err := os.MkdirAll(other, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "manifest.json"), []byte(updateManifest("Flash", updateBehaviorUUID, "data", `[1,0,2]`)), 0644); err != nil {
+		t.Fatal(err)
+	}
+	refsPath := filepath.Join(world, "world_behavior_packs.json")
+	if err := writePackRefs(refsPath, []packRef{{PackID: updateBehaviorUUID, Version: json.RawMessage(`[1,0,0]`), Subpack: "500"}}); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest("PUT", "/api/server-details/server/packs", strings.NewReader(`{"resource":["resource/actions-resource"],"behavior":["behavior/actions-behavior"]}`))
+	response := httptest.NewRecorder()
+	a.packsHandler(response, request, "server")
+	if response.Code != 200 {
+		t.Fatalf("save order: %d %s", response.Code, response.Body.String())
+	}
+	refs, err := readPackRefs(refsPath)
+	if err != nil || len(refs) != 1 || refs[0].Subpack != "500" || !samePackVersion(refs[0].Version, json.RawMessage(`[1,0,1]`)) {
+		t.Fatalf("save lost selection: %+v %v", refs, err)
 	}
 }
 

@@ -440,13 +440,9 @@ func (a *API) packsHandler(w http.ResponseWriter, r *http.Request, name string) 
 				for _, pack := range listing.Packs {
 					if pack.ID == id && pack.Kind == item.kind {
 						ref := packRef{PackID: pack.UUID, Version: pack.Version}
-						if pack.Active {
-							for _, previous := range existing {
-								if strings.EqualFold(previous.PackID, pack.UUID) {
-									ref = previous
-									break
-								}
-							}
+						if previous := packReferenceIndex(existing, pack); previous >= 0 {
+							ref = existing[previous]
+							ref.Version = pack.Version
 						}
 						refs = append(refs, ref)
 						found = true
