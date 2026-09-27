@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"syscall"
@@ -25,8 +26,9 @@ type assetRecord struct {
 	Patches  []assetPatch `json:"patches,omitempty"`
 }
 type assetState struct {
-	UUID   string        `json:"uuid"`
-	Assets []assetRecord `json:"assets"`
+	UUID           string        `json:"uuid"`
+	Assets         []assetRecord `json:"assets"`
+	CatalogPatches []assetPatch  `json:"catalog_patches,omitempty"`
 }
 type assetLayer struct {
 	ID       string `json:"id"`
@@ -180,7 +182,7 @@ func writeAssetJSON(path string, content []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 func writeAssetState(path string, state assetState) error {
-	if len(state.Assets) == 0 {
+	if len(state.Assets) == 0 && len(state.CatalogPatches) == 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -206,6 +208,41 @@ func writeAssetState(path string, state assetState) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+func readyCatalogPatches(layerDir string, selected []assetRecord, pending []assetPatch) ([]assetPatch, []string, error) {
+	selectedPaths := make(map[string]bool, len(selected))
+	for _, record := range selected {
+		selectedPaths[record.Path] = true
+	}
+	ready := []assetPatch{}
+	warnings := []string{}
+	for _, patch := range pending {
+		if len(patch.Requires) == 0 {
+			return nil, nil, errors.New("Catalog patch has no asset requirements")
+		}
+		available := true
+		for _, rel := range patch.Requires {
+			if selectedPaths[rel] {
+				continue
+			}
+			path, err := assetPath(layerDir, rel)
+			if err != nil {
+				return nil, nil, err
+			}
+			info, err := os.Lstat(path)
+			if err != nil || !info.Mode().IsRegular() {
+				available = false
+				break
+			}
+		}
+		if available {
+			ready = append(ready, patch)
+		} else {
+			warnings = append(warnings, patch.File+": "+patch.Key+" awaits other textures")
+		}
+	}
+	return ready, warnings, nil
 }
 func readAssetState(path, uuid string) (assetState, error) {
 	state := assetState{UUID: uuid, Assets: []assetRecord{}}
@@ -501,13 +538,27 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 	for i, item := range moves {
 		records[i] = item.record
 	}
-	edits, records, warnings, err := referenceEdits(layerDir, change.Action, records)
+	ready := []assetPatch{}
+	waiting := []string{}
+	if change.Action == "restore" {
+		ready, waiting, err = readyCatalogPatches(layerDir, records, state.CatalogPatches)
+		if err != nil {
+			bad(w, 409, err.Error())
+			return
+		}
+	}
+	recordsForEdits := records
+	if len(ready) > 0 {
+		recordsForEdits = append(recordsForEdits, assetRecord{Patches: ready})
+	}
+	edits, recordsForEdits, warnings, err := referenceEdits(layerDir, change.Action, recordsForEdits)
 	if err != nil {
 		bad(w, 409, err.Error())
 		return
 	}
+	warnings = append(warnings, waiting...)
 	changes := []string{}
-	for _, record := range records {
+	for _, record := range recordsForEdits {
 		for _, patch := range record.Patches {
 			label := patch.File
 			if patch.Key != "" {
@@ -521,7 +572,7 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i := range moves {
-		moves[i].record = records[i]
+		moves[i].record = recordsForEdits[i]
 	}
 	completed := []move{}
 	for _, item := range moves {
@@ -554,7 +605,7 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 		}
 		written = append(written, edit)
 	}
-	next := assetState{UUID: state.UUID, Assets: []assetRecord{}}
+	next := assetState{UUID: state.UUID, Assets: []assetRecord{}, CatalogPatches: state.CatalogPatches}
 	if change.Action == "archive" {
 		next.Assets = append(next.Assets, state.Assets...)
 		for _, item := range moves {
@@ -564,6 +615,21 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 		for _, item := range state.Assets {
 			if item.Layer != change.Layer || !seen[item.Path] {
 				next.Assets = append(next.Assets, item)
+			}
+		}
+		if len(ready) > 0 {
+			next.CatalogPatches = []assetPatch{}
+			for _, patch := range state.CatalogPatches {
+				applied := false
+				for _, item := range ready {
+					if reflect.DeepEqual(patch, item) {
+						applied = true
+						break
+					}
+				}
+				if !applied {
+					next.CatalogPatches = append(next.CatalogPatches, patch)
+				}
 			}
 		}
 	}

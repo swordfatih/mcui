@@ -108,6 +108,25 @@ func TestPackDetailIconAndDelete(t *testing.T) {
 	if strings.Contains(string(content), `"sample"`) || !strings.Contains(string(content), `"sample_extra"`) {
 		t.Fatalf("atlas after archive: %s", content)
 	}
+	statePath := filepath.Join(root, "server", ".mcui", "asset-state", "resource", "custom.json")
+	state, err := readAssetState(statePath, uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRel := "textures/blocks/second.png"
+	secondArchived := filepath.Join(root, "server", ".mcui", "archived-assets", "resource", "custom", "SP2", filepath.FromSlash(secondRel))
+	if err := os.WriteFile(secondArchived, []byte("second image"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	secondHash, err := assetHash(secondArchived)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Assets = append(state.Assets, assetRecord{Path: secondRel, Layer: "SP2", Size: int64(len("second image")), Hash: secondHash})
+	state.CatalogPatches = []assetPatch{{File: "blocks.json", Key: "demo:shared", Value: json.RawMessage(`{"textures":{"top":"sample","side":"second"}}`), Requires: []string{"textures/blocks/sample.png", secondRel}}}
+	if err := writeAssetState(statePath, state); err != nil {
+		t.Fatal(err)
+	}
 	restored := httptest.NewRecorder()
 	a.packAssets(restored, httptest.NewRequest("POST", assetURL, strings.NewReader(strings.Replace(request, `"archive"`, `"restore"`, 1))))
 	if restored.Code != 200 {
@@ -120,7 +139,19 @@ func TestPackDetailIconAndDelete(t *testing.T) {
 	if !strings.Contains(string(content), `"sample"`) {
 		t.Fatalf("atlas not restored: %s", content)
 	}
-	statePath := filepath.Join(root, "server", ".mcui", "asset-state", "resource", "custom.json")
+	blocksContent, _ := os.ReadFile(filepath.Join(layer, "blocks.json"))
+	if strings.Contains(string(blocksContent), `"demo:shared"`) {
+		t.Fatal("shared block restored before all textures")
+	}
+	secondRestored := httptest.NewRecorder()
+	a.packAssets(secondRestored, httptest.NewRequest("POST", assetURL, strings.NewReader(`{"action":"restore","layer":"SP2","paths":["textures/blocks/second.png"]}`)))
+	if secondRestored.Code != 200 {
+		t.Fatalf("restore second texture: %d %s", secondRestored.Code, secondRestored.Body.String())
+	}
+	blocksContent, _ = os.ReadFile(filepath.Join(layer, "blocks.json"))
+	if !strings.Contains(string(blocksContent), `"demo:shared"`) {
+		t.Fatal("shared block was not restored after all textures")
+	}
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
 		t.Fatalf("state should be removed: %v", err)
 	}

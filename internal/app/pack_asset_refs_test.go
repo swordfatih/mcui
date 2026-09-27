@@ -27,3 +27,25 @@ func TestReferenceEditsRestoresSavedBlockEntry(t *testing.T) {
 		t.Fatal("expected conflict with existing block entry")
 	}
 }
+
+func TestCatalogPatchWaitsForAllTextures(t *testing.T) {
+	layer := t.TempDir()
+	first := "textures/blocks/first.png"
+	second := "textures/blocks/second.png"
+	patch := assetPatch{File: "blocks.json", Key: "demo:block", Value: json.RawMessage(`{"textures":{"top":"first","side":"second"}}`), Requires: []string{first, second}}
+	ready, warnings, err := readyCatalogPatches(layer, []assetRecord{{Path: first}}, []assetPatch{patch})
+	if err != nil || len(ready) != 0 || len(warnings) != 1 {
+		t.Fatalf("early restore: %+v, %+v, %v", ready, warnings, err)
+	}
+	path := filepath.Join(layer, second)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("texture"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ready, warnings, err = readyCatalogPatches(layer, []assetRecord{{Path: first}}, []assetPatch{patch})
+	if err != nil || len(ready) != 1 || len(warnings) != 0 {
+		t.Fatalf("complete restore: %+v, %+v, %v", ready, warnings, err)
+	}
+}

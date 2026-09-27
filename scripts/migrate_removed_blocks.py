@@ -41,19 +41,24 @@ def add_patch(record, patch):
         record["patches"].append(patch)
 
 
-def patches_for(records, layer_dir):
+def patches_for(records, layer_dir, catalog_patches):
     by_key = {}
     for record in records:
         by_key.setdefault(texture_key(record["path"]), []).append(record)
         record.setdefault("patches", [])
 
-    alias_owner = {}
+    by_path = {record["path"]: record for record in records}
+    alias_requires = {}
     removed_aliases = set()
     for record in records:
         for patch in record["patches"]:
             if patch["file"] == "textures/terrain_texture.json":
-                alias_owner[patch["key"]] = record
+                alias_requires[patch["key"]] = [record["path"]]
                 removed_aliases.add(patch["key"])
+    for patch in catalog_patches:
+        if patch["file"] == "textures/terrain_texture.json":
+            alias_requires[patch["key"]] = patch["requires"]
+            removed_aliases.add(patch["key"])
 
     terrain = layer_dir / "textures/terrain_texture.json"
     old_terrain = terrain.with_name(terrain.name + ".before_removed_paths")
@@ -65,11 +70,27 @@ def patches_for(records, layer_dir):
                 continue
             removed_aliases.add(key)
             paths = [texture_key(path) for path in references(value.get("textures", []))] if isinstance(value, dict) else []
-            matches = {id(record): record for path in paths for record in by_key.get(path, [])}
-            if len(paths) == 1 and len(matches) == 1:
-                record = next(iter(matches.values()))
-                add_patch(record, {"file": "textures/terrain_texture.json", "key": key, "value": value})
-                alias_owner[key] = record
+            if not paths:
+                continue
+            requirements = set()
+            unresolved = False
+            for path in paths:
+                matches = by_key.get(path, [])
+                if len(matches) == 1:
+                    requirements.add(matches[0]["path"])
+                elif len(matches) > 1:
+                    unresolved = True
+                elif not any((layer_dir / (path + ext)).is_file() for ext in ("", ".png", ".tga", ".jpg", ".jpeg", ".webp")):
+                    unresolved = True
+            if unresolved or not requirements:
+                continue
+            required = sorted(requirements)
+            alias_requires[key] = required
+            patch = {"file": "textures/terrain_texture.json", "key": key, "value": value}
+            if len(required) == 1:
+                add_patch(by_path[required[0]], patch)
+            else:
+                add_patch({"patches": catalog_patches}, {**patch, "requires": required})
 
     texture_list = layer_dir / "textures/textures_list.json"
     old_list = texture_list.with_name(texture_list.name + ".before_removed_paths")
@@ -85,7 +106,7 @@ def patches_for(records, layer_dir):
 
     blocks = layer_dir / "blocks.json"
     old_blocks = blocks.with_name(blocks.name + ".before_removed_paths")
-    ambiguous = 0
+    unresolved_blocks = 0
     if blocks.is_file() and old_blocks.is_file():
         current = read_json(blocks)
         original = read_json(old_blocks)
@@ -94,12 +115,18 @@ def patches_for(records, layer_dir):
                 continue
             aliases = references(value.get("textures", {})) + references(value.get("carried_textures", {}))
             affected = [alias for alias in aliases if alias in removed_aliases]
-            owners = {id(alias_owner[alias]): alias_owner[alias] for alias in affected if alias in alias_owner}
-            if affected and len(owners) == 1 and all(alias in alias_owner for alias in affected):
-                add_patch(next(iter(owners.values())), {"file": "blocks.json", "key": key, "value": value})
-            elif affected:
-                ambiguous += 1
-    return ambiguous
+            if not affected:
+                continue
+            if not all(alias in alias_requires for alias in affected):
+                unresolved_blocks += 1
+                continue
+            required = sorted({path for alias in affected for path in alias_requires[alias]})
+            patch = {"file": "blocks.json", "key": key, "value": value}
+            if len(required) == 1:
+                add_patch(by_path[required[0]], patch)
+            else:
+                add_patch({"patches": catalog_patches}, {**patch, "requires": required})
+    return unresolved_blocks
 
 
 def migrate(server, pack, layer, apply, repair_index=False):
@@ -117,6 +144,7 @@ def migrate(server, pack, layer, apply, repair_index=False):
     archive = server / ".mcui/archived-assets/resource" / pack / layer
     state_path = server / ".mcui/asset-state/resource" / f"{pack}.json"
     state = read_json(state_path) if state_path.exists() else {"uuid": uuid, "assets": []}
+    state.setdefault("catalog_patches", [])
     if state["uuid"].lower() != uuid.lower():
         raise ValueError("Existing archive index belongs to another pack UUID")
     existing = {(item["layer"], item["path"]) for item in state["assets"]}
@@ -124,7 +152,9 @@ def migrate(server, pack, layer, apply, repair_index=False):
     if repair_index:
         records = [item for item in state["assets"] if item["layer"] == layer and item["path"].startswith("textures/blocks/")]
         if not records:
-            raise ValueError("No indexed block textures found to repair")
+            if source_dir.is_dir():
+                raise ValueError("Nothing has been imported yet. Run this command without --repair-index to preview the initial import, then add --apply.")
+            raise ValueError("No indexed block textures found to repair, and the legacy removed_blocks folder is missing")
     else:
         for path in sorted(source_dir.rglob("*")):
             if path.is_symlink():
@@ -142,15 +172,16 @@ def migrate(server, pack, layer, apply, repair_index=False):
         if not moves:
             raise ValueError("No files found in removed_blocks")
         records = [record for _, _, record in moves]
-    before_patches = sum(len(record.get("patches", [])) for record in records)
-    ambiguous = patches_for(records, layer_dir)
+    before_patches = sum(len(record.get("patches", [])) for record in records) + len(state["catalog_patches"])
+    unresolved_blocks = patches_for(records, layer_dir, state["catalog_patches"])
     if not repair_index:
         print(f"{len(moves)} files will move from {source_dir} into {archive}")
     else:
         print(f"Updating existing archive index at {state_path}")
-    print(f"{sum(len(record['patches']) for record in records)} catalog entries can be restored later by MCUI")
-    if ambiguous:
-        print(f"{ambiguous} block entries have ambiguous or unmapped removed aliases and need manual review")
+    catalog_count = sum(len(record['patches']) for record in records) + len(state["catalog_patches"])
+    print(f"{catalog_count} catalog entries can be restored later by MCUI")
+    if unresolved_blocks:
+        print(f"{unresolved_blocks} block entries have unmapped removed aliases and need manual review")
     if not apply:
         print("Dry run only. Stop the server, then rerun with --apply.")
         return
@@ -178,7 +209,7 @@ def migrate(server, pack, layer, apply, repair_index=False):
         for src, dest in reversed(completed):
             shutil.move(str(dest), str(src))
         raise
-    print(f"{'Indexed' if repair_index else 'Imported'} {len(records)} files and {sum(len(record['patches']) for record in records) - before_patches} new catalog references. Refresh the pack's Images section.")
+    print(f"{'Indexed' if repair_index else 'Imported'} {len(records)} files and {catalog_count - before_patches} new catalog references. Refresh the pack's Images section.")
 
 
 if __name__ == "__main__":

@@ -10,10 +10,11 @@ import (
 )
 
 type assetPatch struct {
-	File  string          `json:"file"`
-	Key   string          `json:"key,omitempty"`
-	Index int             `json:"index,omitempty"`
-	Value json.RawMessage `json:"value"`
+	File     string          `json:"file"`
+	Key      string          `json:"key,omitempty"`
+	Index    int             `json:"index,omitempty"`
+	Value    json.RawMessage `json:"value"`
+	Requires []string        `json:"requires,omitempty"`
 }
 type assetFileEdit struct {
 	Path          string
