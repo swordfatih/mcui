@@ -113,6 +113,8 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch action {
+	case "packs":
+		a.packsHandler(w, r, name)
 	case "resources", "storage":
 		if r.Method != http.MethodGet {
 			bad(w, 405, "Method not allowed")

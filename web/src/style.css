@@ -536,6 +536,30 @@ footer span {
 .status-pill.running i { background: #b8ec8d; box-shadow: 0 0 0 3px #aee78c22; }
 .status-pill.stopped { color: #f3b0a5; border-color: #94615d; background: #46302e; }
 .status-pill.stopped i { background: #f0a095; box-shadow: 0 0 0 3px #f0a09522; }
+.packs-page { display: grid; gap: 18px; padding-bottom: 30px; }
+.packs-heading h2 { margin: 0 0 8px; }
+.packs-heading p:last-child { margin-bottom: 0; }
+.pack-section { padding: 22px; }
+.pack-section h3 { margin: 0 0 16px; }
+.pack-list { display: grid; gap: 10px; }
+.pack-card { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 14px; border: 1px solid #405443; border-radius: 12px; background: #213025; }
+.pack-card.pack-active { border-color: #67875a; }
+.pack-handle { flex: none; border: 0; background: transparent; color: #c6dbb7; font-size: 27px; cursor: grab; touch-action: none; }
+.pack-handle:active { cursor: grabbing; }
+.pack-copy { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.pack-copy strong, .pack-copy small { overflow-wrap: anywhere; }
+.pack-copy small { color: #a5b3a3; font-size: 11px; }
+.pack-load { color: #c1dcae; font-size: 12px; }
+.pack-controls { display: flex; align-items: center; gap: 12px; }
+.pack-controls label { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.pack-controls div { display: flex; gap: 3px; }
+.pack-controls button { min-width: 32px; min-height: 32px; border: 1px solid #536a53; border-radius: 7px; background: #2c4030; color: #e5f6db; }
+.pack-controls button:disabled { opacity: .35; }
+.pack-save { justify-self: start; }
+.pack-section form { display: grid; gap: 12px; max-width: 540px; }
+.pack-section form label { display: grid; gap: 6px; }
+.pack-section form input { width: 100%; min-width: 0; }
+@media(max-width:600px) { .pack-card { flex-wrap: wrap; } .pack-copy { flex-basis: calc(100% - 55px); } .pack-controls { width: 100%; justify-content: space-between; padding-left: 40px; } }
 .dashboard { padding-top: 26px; }
 .dashboard-hero { margin: 22px 0 0; border: 1px solid #456449; border-radius: 20px; padding: 30px; background: radial-gradient(circle at 96% 0%, #395537 0, transparent 35%), linear-gradient(135deg,#253a29,#1a291e); }
 .dashboard-heading { margin: 0; display: flex; align-items: center; gap: 17px; }

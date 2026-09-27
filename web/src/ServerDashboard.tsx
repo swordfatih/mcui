@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import Infrastructure from './Infrastructure'
 import Console from './Console'
+import Packs from './Packs'
 
 type Server = {
   name: string
@@ -26,7 +27,7 @@ type PlayerStatus = {
   players?: string[]
   reason?: string
 }
-type Tab = 'overview' | 'infrastructure' | 'console'
+type Tab = 'overview' | 'infrastructure' | 'console' | 'resources'
 
 const api = axios.create({ baseURL: '/api' })
 const errorMessage = (error: unknown) => axios.isAxiosError(error)
@@ -132,7 +133,7 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
     </section>
 
     <nav className="detail-tabs" aria-label="Server sections">
-      {(['overview', 'infrastructure', 'console'] as const).map(section => <button
+      {(['overview', 'resources', 'infrastructure', 'console'] as const).filter(section => section !== 'resources' || server.edition === 'bedrock').map(section => <button
         key={section}
         type="button"
         className={tab === section ? 'selected' : ''}
@@ -192,5 +193,6 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
     <Infrastructure server={server} active={tab === 'infrastructure'} />
 
     {tab === 'console' && <Console server={server} />}
+    {tab === 'resources' && <Packs name={server.name} />}
   </main>
 }

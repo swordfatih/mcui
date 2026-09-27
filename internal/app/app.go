@@ -566,7 +566,7 @@ func extract(path, root string) error {
 		}
 		return closeErr
 	}
-	if strings.HasSuffix(strings.ToLower(path), ".zip") {
+	if strings.HasSuffix(strings.ToLower(path), ".zip") || strings.HasSuffix(strings.ToLower(path), ".mcaddon") || strings.HasSuffix(strings.ToLower(path), ".mcpack") {
 		z, err := zip.OpenReader(path)
 		if err != nil {
 			return err
