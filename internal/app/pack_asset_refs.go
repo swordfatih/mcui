@@ -55,7 +55,7 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 	}
 	warnings := []string{}
 	edits := []assetFileEdit{}
-	files := []string{"textures/terrain_texture.json", "textures/flipbook_textures.json", "textures/flipbook_texture.json", "textures/textures_list.json"}
+	files := []string{"textures/terrain_texture.json", "textures/flipbook_textures.json", "textures/flipbook_texture.json", "textures/textures_list.json", "blocks.json"}
 	for _, rel := range files {
 		path, err := assetPath(layerDir, rel)
 		if err != nil {
@@ -82,7 +82,36 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 		}
 		var after []byte
 		changed := false
-		if rel == "textures/terrain_texture.json" {
+		if rel == "blocks.json" {
+			var blocks map[string]json.RawMessage
+			if err := json.Unmarshal(stripJSONComments(before), &blocks); err != nil {
+				return nil, nil, nil, fmt.Errorf("%s: %w", rel, err)
+			}
+			if blocks == nil {
+				return nil, nil, nil, fmt.Errorf("%s: expected an object", rel)
+			}
+			if action == "restore" {
+				for _, record := range records {
+					for _, patch := range record.Patches {
+						if patch.File != rel {
+							continue
+						}
+						if patch.Key == "" || patch.Key == "format_version" {
+							return nil, nil, nil, fmt.Errorf("%s: invalid block reference", rel)
+						}
+						if _, exists := blocks[patch.Key]; exists {
+							return nil, nil, nil, fmt.Errorf("%s: block %s already exists", rel, patch.Key)
+						}
+						blocks[patch.Key] = patch.Value
+						changed = true
+					}
+				}
+			}
+			after, err = json.MarshalIndent(blocks, "", "  ")
+			if err != nil {
+				return nil, nil, nil, err
+			}
+		} else if rel == "textures/terrain_texture.json" {
 			var doc map[string]json.RawMessage
 			if err := json.Unmarshal(stripJSONComments(before), &doc); err != nil {
 				return nil, nil, nil, fmt.Errorf("%s: %w", rel, err)

@@ -96,6 +96,11 @@ func TestPackDetailIconAndDelete(t *testing.T) {
 	if archived.Code != 200 {
 		t.Fatalf("archive: %d %s", archived.Code, archived.Body.String())
 	}
+	archivedList := httptest.NewRecorder()
+	a.packAssets(archivedList, httptest.NewRequest("GET", assetURL, nil))
+	if archivedList.Code != 200 || !strings.Contains(archivedList.Body.String(), `"path":"textures/blocks/sample.png","layer":"SP2"`) || !strings.Contains(archivedList.Body.String(), `"archived":true`) {
+		t.Fatalf("archived asset missing from listing: %d %s", archivedList.Code, archivedList.Body.String())
+	}
 	if _, err := os.Stat(texture); !os.IsNotExist(err) {
 		t.Fatalf("texture still present: %v", err)
 	}
