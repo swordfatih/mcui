@@ -210,11 +210,13 @@ func TestValidatePushAndNetworkTargets(t *testing.T) {
 type fakePushClient struct {
 	statuses  []int
 	endpoints []string
+	headers   []string
 	encrypted bool
 }
 
 func (c *fakePushClient) Do(r *http.Request) (*http.Response, error) {
 	c.endpoints = append(c.endpoints, r.URL.String())
+	c.headers = append(c.headers, r.Header.Get("Authorization"))
 	body, _ := io.ReadAll(r.Body)
 	c.encrypted = len(body) > 0 && !bytes.Contains(body, []byte("Alex joined")) && strings.HasPrefix(r.Header.Get("Authorization"), "vapid ")
 	if len(c.statuses) == 0 {
@@ -343,5 +345,116 @@ esac
 	}
 	if !watch.cursor.Equal(cursor) || len(watch.lines) != 2 {
 		t.Fatal("Docker failure changed cached logs")
+	}
+}
+
+// Inspect the actual JWT produced by the dependency, rather than only checking
+// that a VAPID header exists. Email configuration must contain one mailto scheme.
+func TestPushDeliveryVAPIDContact(t *testing.T) {
+	for _, origin := range []string{"https://web.push.apple.com", "https://fcm.googleapis.com"} {
+		for _, contact := range []string{"mailto:admin@example.com", "https://mc.example.com"} {
+			t.Run(origin+"/"+contact, func(t *testing.T) {
+				_, p := testPushManager(t)
+				p.contact = contact
+				sub := testPushSubscription(t, origin+"/device-token")
+				p.state.Devices[sub.Endpoint] = pushDevice{Subscription: sub, Servers: map[string]bool{"one": true}}
+				client := &fakePushClient{statuses: []int{201, 201}}
+				p.client = client
+				p.deliver(context.Background(), playerEvent{Server: "one", Player: "Patik9622", Action: "joined"})
+				if len(client.headers) != 1 {
+					t.Fatalf("expected one push, got %d", len(client.headers))
+				}
+				token, public, ok := strings.Cut(strings.TrimPrefix(client.headers[0], "vapid t="), ", k=")
+				if !ok || public != p.state.PublicKey {
+					t.Fatal("incorrect VAPID public key")
+				}
+				parts := strings.Split(token, ".")
+				if len(parts) != 3 {
+					t.Fatal("invalid JWT")
+				}
+				payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+				if err != nil {
+					t.Fatal(err)
+				}
+				var claims struct {
+					Subject  string `json:"sub"`
+					Audience string `json:"aud"`
+				}
+				if err := json.Unmarshal(payload, &claims); err != nil {
+					t.Fatal(err)
+				}
+				if claims.Subject != contact {
+					t.Fatalf("VAPID subject = %q; want %q", claims.Subject, contact)
+				}
+				if claims.Audience != origin {
+					t.Fatalf("wrong audience: %q", claims.Audience)
+				}
+				p.deliver(context.Background(), playerEvent{Server: "one", Player: "Patik9622", Action: "left"})
+				if len(client.headers) != 2 || client.headers[0] != client.headers[1] {
+					t.Fatal("VAPID token refreshed within an hour")
+				}
+			})
+		}
+	}
+
+}
+
+func TestReportedBedrockLogEvents(t *testing.T) {
+	lines := []string{
+		"[2026-09-29 11:19:02:700 INFO] Player disconnected: Ananana7817, xuid: 2535460849060830, pfid: ECA7BCAF0AB8CBA",
+		"[2026-09-29 11:19:16:600 INFO] Player connected: Ananana7817, xuid: 2535460849060830",
+		"[2026-09-29 11:19:17:606 INFO] Player PartyIdUpdate:  pfid: ECA7BCAF0AB8CBA, partyid: , isLeader: false",
+		"[2026-09-29 11:19:19:849 INFO] Player Spawned: Ananana7817 xuid: 2535460849060830, pfid: ECA7BCAF0AB8CBA",
+		"[2026-09-29 11:23:23:097 INFO] Player disconnected: Ananana7817, xuid: 2535460849060830, pfid: ECA7BCAF0AB8CBA",
+		"[2026-09-29 11:37:34:647 INFO] Player disconnected: Patik9622, xuid: 2533274995732102, pfid: 3D1F8E956DA8669A",
+		"[2026-09-29 12:58:51:182 INFO] Player connected: Patik9622, xuid: 2533274995732102",
+		"[2026-09-29 12:58:52:307 INFO] Player PartyIdUpdate:  pfid: 3D1F8E956DA8669A, partyid: , isLeader: false",
+		"[2026-09-29 12:58:52:840 INFO] Player Spawned: Patik9622 xuid: 2533274995732102, pfid: 3D1F8E956DA8669A",
+		"[2026-09-29 12:59:43:761 INFO] Player disconnected: Patik9622, xuid: 2533274995732102, pfid: 3D1F8E956DA8669A",
+	}
+	base := time.Date(2026, 9, 29, 11, 0, 0, 0, time.UTC)
+	watch := &serverLogWatch{boundary: make(map[string]int)}
+	watch.ingest("", base)
+	var output strings.Builder
+	for i, line := range lines {
+		// Docker supplies the outer RFC3339 timestamp; the console displays the body.
+		output.WriteString(base.Add(time.Duration(i+1)*time.Second).Format(time.RFC3339Nano) + " " + line + "\n")
+	}
+	want := []playerEvent{
+		{Player: "Ananana7817", Action: "left"}, {Player: "Ananana7817", Action: "joined"}, {Player: "Ananana7817", Action: "left"},
+		{Player: "Patik9622", Action: "left"}, {Player: "Patik9622", Action: "joined"}, {Player: "Patik9622", Action: "left"},
+	}
+	if got := watch.ingest(output.String(), base.Add(time.Hour)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("events = %+v; want %+v", got, want)
+	}
+	if got := watch.ingest(output.String(), base.Add(time.Hour)); len(got) != 0 {
+		t.Fatalf("replayed events: %+v", got)
+	}
+}
+
+func TestPushStatusRefreshesRotatedKeysWithoutNewSubscriptions(t *testing.T) {
+	a, p := testPushManager(t)
+	old := testPushSubscription(t, "https://fcm.googleapis.com/token")
+	p.state.Devices[old.Endpoint] = pushDevice{Subscription: old, Servers: map[string]bool{"one": true, "two": true}}
+	updated := testPushSubscription(t, old.Endpoint)
+	response := pushRequest(a, map[string]any{"action": "status", "subscription": updated}, true)
+	if response.Code != 200 {
+		t.Fatalf("refresh: %d %s", response.Code, response.Body)
+	}
+	if p.state.Devices[old.Endpoint].Subscription != updated || !p.hasServer("two") {
+		t.Fatal("did not refresh keys or lost another server preference")
+	}
+	fresh := testPushSubscription(t, "https://fcm.googleapis.com/new-token")
+	response = pushRequest(a, map[string]any{"action": "status", "subscription": fresh}, true)
+	if response.Code != 200 || len(p.state.Devices) != 1 {
+		t.Fatal("status enrolled an unknown browser")
+	}
+}
+func TestInvalidPushContactRejected(t *testing.T) {
+	for _, contact := range []string{"mailto:mailto:admin@example.com", "mailto:not-an-address", "mailto:User <admin@example.com>"} {
+		t.Setenv("MCUI_PUSH_CONTACT", contact)
+		if _, err := newPushManager(t.TempDir()); err == nil {
+			t.Fatalf("accepted invalid contact %q", contact)
+		}
 	}
 }

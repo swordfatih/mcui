@@ -24,12 +24,14 @@ import (
 )
 
 type Server struct {
-	Name     string `json:"name"`
-	Edition  string `json:"edition"`
-	Port     int    `json:"port,omitempty"`
-	Protocol string `json:"protocol,omitempty"`
-	Host     string `json:"host,omitempty"`
-	Status   string `json:"status"`
+	DisplayName string `json:"displayName"`
+	IconURL     string `json:"iconUrl,omitempty"`
+	Name        string `json:"name"`
+	Edition     string `json:"edition"`
+	Port        int    `json:"port,omitempty"`
+	Protocol    string `json:"protocol,omitempty"`
+	Host        string `json:"host,omitempty"`
+	Status      string `json:"status"`
 }
 type CreateRequest struct {
 	Name       string `json:"name"`
@@ -42,11 +44,12 @@ type CreateRequest struct {
 	backupFile string
 }
 type API struct {
-	Root   string
-	mu     sync.Mutex
-	backup *BackupManager
-	push   *PushManager
-	logs   *LogWatch
+	profileMu sync.RWMutex
+	Root      string
+	mu        sync.Mutex
+	backup    *BackupManager
+	push      *PushManager
+	logs      *LogWatch
 }
 
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -221,6 +224,8 @@ func Serve(addr, root string) error {
 	a.push.start(ctx)
 	go backup.schedule(ctx)
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/server-profile/", a.serverProfileHandler)
+	mux.HandleFunc("/server-icons/", a.serverIcon)
 	mux.HandleFunc("/api/push/", a.pushHandler)
 	mux.HandleFunc("/api/servers", a.servers)
 	mux.HandleFunc("/api/backups/config", a.backupConfigHandler)
@@ -388,6 +393,9 @@ func (a *API) status(parent context.Context, name string) string {
 }
 func (a *API) readServer(name string) (Server, error) {
 	server, _, err := a.minecraftService(name)
+	profile := a.profile(name)
+	server.DisplayName = profile.DisplayName
+	server.IconURL = profile.iconURL(name)
 	return server, err
 }
 func (a *API) create(req CreateRequest) error {

@@ -17,9 +17,9 @@ function worker(clients = []) {
 }
 test('push shows visible notification with correct destination', async () => {
   const w = worker()
-  await w.dispatch('push', { data: { json: () => ({ title: 'Survival · MCUI', body: 'Alex joined the server', url: '/servers/survival' }) } })
-  assert.equal(w.notices[0].title, 'Survival · MCUI')
-  assert.equal(w.notices[0].body, 'Alex joined the server')
+  await w.dispatch('push', { data: { json: () => ({ title: 'Survival', body: '✨ Alex joined the adventure!', url: '/servers/survival' }) } })
+  assert.equal(w.notices[0].title, 'Survival')
+  assert.equal(w.notices[0].body, '✨ Alex joined the adventure!')
   assert.equal(w.notices[0].data.url, '/servers/survival')
 })
 test('malformed or missing payload still displays a notification', async () => {
@@ -27,7 +27,7 @@ test('malformed or missing payload still displays a notification', async () => {
   await w.dispatch('push', {})
   await w.dispatch('push', { data: { json: () => { throw new Error('invalid') } } })
   assert.equal(w.notices.length, 2)
-  assert.equal(w.notices[1].title, 'MCUI')
+  assert.equal(w.notices[1].title, 'Your world')
 })
 test('notification click opens server, never an external site', async () => {
   const w = worker()
@@ -44,4 +44,18 @@ test('notification click reuses and focuses an existing MCUI window', async () =
   assert.equal(destination, 'https://mc.example.com/servers/one')
   assert.equal(focused, true)
   assert.equal(w.opened.length, 0)
+})
+
+test('uses server icon for notifications, rejecting external icon URLs', async () => {
+  const w = worker()
+  const icon = `/server-icons/one/${'a'.repeat(64)}.png`
+  await w.dispatch('push', { data: { json: () => ({ title: 'Family', icon }) } })
+  await w.dispatch('push', { data: { json: () => ({ icon: 'https://untrusted.example/image.png' }) } })
+  assert.equal(w.notices[0].icon, icon)
+  assert.equal(w.notices[1].icon, '/icons/icon-192.png?v=grass-block-1')
+})
+test('invalid click URL falls back to dashboard', async () => {
+  const w = worker()
+  await w.dispatch('notificationclick', { notification: { data: { url: 'https://[' }, close() {} } })
+  assert.deepEqual(w.opened, ['https://mc.example.com/'])
 })

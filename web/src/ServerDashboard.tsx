@@ -5,9 +5,13 @@ import Infrastructure from './Infrastructure'
 import Console from './Console'
 import Packs from './Packs'
 import Files from './Files'
+import ServerProfileEditor from './ServerProfileEditor'
+import NotificationBell from './NotificationBell'
 
 type Server = {
   name: string
+  displayName?: string
+  iconUrl?: string
   edition: 'bedrock' | 'java'
   status: string
   port?: number
@@ -50,6 +54,7 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
   const qc = useQueryClient()
   const key = encodeURIComponent(server.name)
   const [tab, setTab] = useState<Tab>(() => { const requested = new URLSearchParams(window.location.search).get('tab'); return requested === 'resources' && server.edition === 'bedrock' ? 'resources' : requested === 'files' ? 'files' : 'overview' })
+  const [editingProfile, setEditingProfile] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
@@ -115,15 +120,16 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
 
     <section className="dashboard-hero">
       <div className="dashboard-heading">
-        <div className="dashboard-emblem">{server.edition === 'bedrock' ? 'B' : 'J'}</div>
+        <div className="dashboard-emblem">{server.iconUrl ? <img src={server.iconUrl} alt="" /> : server.edition === 'bedrock' ? 'B' : 'J'}</div>
         <div>
           <p className="kicker">{server.edition === 'bedrock' ? 'BEDROCK SERVER' : 'JAVA SERVER'}</p>
-          <h1>{server.name}</h1>
+          <h1>{server.displayName || server.name}</h1>
         </div>
         <span className={`status-pill ${server.status}`}><i />{server.status}</span>
       </div>
       <p className="muted">Manage your world, connect players, and keep it backed up.</p>
       <div className="dashboard-actions">
+        <button type="button" className="secondary-action" aria-expanded={editingProfile} onClick={() => setEditingProfile(value => !value)}>Edit server</button>
         <button className="primary" disabled={action.isPending || backup.data?.state === 'capturing'} onClick={() => action.mutate(server.status === 'running' ? 'stop' : 'start')}>
           {action.isPending ? 'Working…' : server.status === 'running' ? 'Stop server' : 'Start server'}
         </button>
@@ -131,7 +137,9 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
           {backupBusy ? 'Backup in progress…' : 'Back up now'}
         </button>
       </div>
+      <NotificationBell server={server.name} label={server.displayName || server.name} inline />
     </section>
+    {editingProfile && <ServerProfileEditor server={server} onClose={() => setEditingProfile(false)} />}
 
     <nav className="detail-tabs" aria-label="Server sections">
       {(['overview', 'resources', 'files', 'infrastructure', 'console'] as const).filter(section => section !== 'resources' || server.edition === 'bedrock').map(section => <button

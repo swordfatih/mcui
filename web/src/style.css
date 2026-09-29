@@ -1150,3 +1150,19 @@ footer span {
 .notification-message { position: absolute; z-index: 10; right: 0; top: 44px; width: min(290px, calc(100vw - 85px)); padding: 14px 34px 14px 14px; border: 1px solid #638455; border-radius: 10px; background: #17251b; box-shadow: 0 8px 24px #0008; color: #e9eee9; font-size: 13px; }
 .notification-message p { margin: 0; }
 .notification-message button { position: absolute; top: 5px; right: 5px; background: transparent; border: 0; color: inherit; font-size: 22px; cursor: pointer; }
+
+.server-symbol img, .dashboard-emblem img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.server-profile-editor { margin-block: 18px; }
+.server-profile-editor form { display: grid; gap: 12px; margin-top: 18px; }
+.server-profile-editor input[type="text"], .server-profile-editor input:not([type]) { width: 100%; }
+.server-icon-editor { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.server-icon-editor img { border-radius: 12px; object-fit: cover; }
+.server-icon-editor label { display: block; margin-bottom: 8px; }
+.server-icon-editor input { max-width: 100%; }
+.server-icon-editor .muted { font-size: 13px; margin: 8px 0; }
+.profile-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.notification-inline { position: relative; inset: auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.notification-inline > span { font-size: 13px; color: #b6c5b2; }
+.notification-inline .notification-message { left: 0; right: auto; top: calc(100% + 8px); }
+
+.brand-icon img, .login-mark img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }

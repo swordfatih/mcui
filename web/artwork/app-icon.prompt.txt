@@ -1,0 +1,7 @@
+Generated with the built-in image_gen tool.
+
+Use case: logo-brand. Asset type: square mobile app icon for a Minecraft server dashboard. Create a cool, polished Minecraft-inspired voxel grass block: vivid emerald and lime pixel-textured grassy top, chunky warm earthy brown sides with a few stone pixels, crisp isometric cube silhouette, subtly beveled edges and beautiful soft directional light. One block only, no text, letters, watermark, characters, or additional objects. Center the complete block inside the middle 68% of a square canvas, with ample safe padding for Android maskable and iPhone app icons. Deep forest-green full-bleed background with a subtle soft glow and grounded shadow. Bold readable silhouette at tiny sizes, playful premium game-icon finish, restrained texture, no surrounding frame, no rounded canvas corners. Square 1024 by 1024.
+
+Original artwork: app-icon-source.png
+App, Home Screen, and favicon PNGs are scaled exports of this artwork.
+The Android notification badge is a separate monochrome cube for status-bar legibility.

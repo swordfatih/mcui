@@ -4,16 +4,17 @@ self.addEventListener('activate', event => event.waitUntil(self.clients.claim())
 self.addEventListener('push', event => {
   let data = {}
   try { data = event.data?.json() || {} } catch { /* Still display a visible notification. */ }
-  event.waitUntil(self.registration.showNotification(data.title || 'MCUI', {
-    body: data.body || 'New server activity',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/badge.png',
+  event.waitUntil(self.registration.showNotification(data.title || 'Your world', {
+    body: data.body || '✨ Something new in your world!',
+    icon: typeof data.icon === 'string' && /^\/server-icons\/[^/]+\/[a-f0-9]{64}\.png$/.test(data.icon) ? data.icon : '/icons/icon-192.png?v=grass-block-1',
+    badge: '/icons/badge.png?v=grass-block-1',
     data: { url: data.url || '/' },
   }))
 })
 self.addEventListener('notificationclick', event => {
   event.notification.close()
-  const target = new URL(event.notification.data?.url || '/', self.location.origin)
+  let target
+  try { target = new URL(event.notification.data?.url || '/', self.location.origin) } catch { target = new URL('/', self.location.origin) }
   if (target.origin !== self.location.origin || !target.pathname.startsWith('/servers/')) target.href = self.location.origin + '/'
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })

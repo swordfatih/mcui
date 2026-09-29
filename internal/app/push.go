@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -31,13 +32,44 @@ type pushState struct {
 	Devices    map[string]pushDevice `json:"devices"`
 }
 type PushManager struct {
-	mu      sync.Mutex
-	state   pushState
-	path    string
-	contact string
-	client  webpush.HTTPClient
-	queue   chan playerEvent
-	watch   *LogWatch
+	mu          sync.Mutex
+	state       pushState
+	path        string
+	contact     string
+	client      webpush.HTTPClient
+	queue       chan playerEvent
+	watch       *LogWatch
+	authHeaders map[string]pushAuthHeader
+}
+
+type pushAuthHeader struct {
+	value string
+	until time.Time
+}
+type pushAuthClient struct{ manager *PushManager }
+
+func (c pushAuthClient) Do(r *http.Request) (*http.Response, error) {
+	p := c.manager
+	// Apple asks applications not to refresh VAPID JWTs more than once an hour.
+	// Share authorization only within the same push-service origin and key pair.
+	key := r.URL.Scheme + "://" + r.URL.Host + "|" + p.contact + "|" + p.state.PublicKey
+	p.mu.Lock()
+	if p.authHeaders == nil {
+		p.authHeaders = make(map[string]pushAuthHeader)
+	}
+	now := time.Now()
+	for origin, entry := range p.authHeaders {
+		if !now.Before(entry.until) {
+			delete(p.authHeaders, origin)
+		}
+	}
+	if cached, ok := p.authHeaders[key]; ok {
+		r.Header.Set("Authorization", cached.value)
+	} else if len(p.authHeaders) < 1024 {
+		p.authHeaders[key] = pushAuthHeader{r.Header.Get("Authorization"), now.Add(time.Hour)}
+	}
+	p.mu.Unlock()
+	return p.client.Do(r)
 }
 
 func newPushManager(root string) (*PushManager, error) {
@@ -50,6 +82,12 @@ func newPushManager(root string) (*PushManager, error) {
 		u, err := url.Parse(p.contact)
 		if err != nil || !(u.Scheme == "mailto" && strings.Contains(u.Opaque, "@") || u.Scheme == "https" && u.Hostname() != "" && u.User == nil) {
 			return nil, errors.New("MCUI_PUSH_CONTACT must be a mailto address or public HTTPS URL")
+		}
+	}
+	if strings.HasPrefix(p.contact, "mailto:") {
+		address, err := mail.ParseAddress(strings.TrimPrefix(p.contact, "mailto:"))
+		if err != nil || address.Address != strings.TrimPrefix(p.contact, "mailto:") {
+			return nil, errors.New("MCUI_PUSH_CONTACT must contain a valid mailto email address")
 		}
 	}
 	data, err := os.ReadFile(p.path)
@@ -158,7 +196,7 @@ func (p *PushManager) deliver(ctx context.Context, event playerEvent) {
 		}
 	}
 	p.mu.Unlock()
-	payload, _ := json.Marshal(map[string]string{"title": event.Server + " · MCUI", "body": event.Player + " " + event.Action + " the server", "url": "/servers/" + url.PathEscape(event.Server)})
+	payload := p.eventPayload(event)
 	for _, d := range devices {
 		// Recheck so an unsubscribe while another endpoint is sending takes effect.
 		p.mu.Lock()
@@ -168,15 +206,7 @@ func (p *PushManager) deliver(ctx context.Context, event playerEvent) {
 			continue
 		}
 		for attempt := 0; attempt < 3; attempt++ {
-			response, err := webpush.SendNotificationWithContext(ctx, payload, &d.Subscription, &webpush.Options{
-				HTTPClient: p.client, Subscriber: p.contact, VAPIDPublicKey: p.state.PublicKey, VAPIDPrivateKey: p.state.PrivateKey, TTL: 60, Urgency: webpush.UrgencyNormal,
-			})
-			status := 0
-			if response != nil {
-				status = response.StatusCode
-				_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-				response.Body.Close()
-			}
+			status, err := p.send(ctx, payload, d.Subscription)
 			if status == http.StatusGone || status == http.StatusNotFound {
 				p.mu.Lock()
 				old, exists := p.state.Devices[d.Subscription.Endpoint]
@@ -193,9 +223,9 @@ func (p *PushManager) deliver(ctx context.Context, event playerEvent) {
 			if err == nil && status >= 200 && status < 300 {
 				break
 			}
-			if attempt == 2 || err == nil && status != 429 && status < 500 {
+			if attempt == 2 || status > 0 && status != 429 && status < 500 {
 				// Endpoints are bearer capabilities; never include them or HTTP errors in logs.
-				log.Printf("push delivery failed for server %q (HTTP %d)", event.Server, status)
+				log.Printf("push delivery failed for server %q: %v", event.Server, err)
 				break
 			}
 			select {
@@ -205,6 +235,48 @@ func (p *PushManager) deliver(ctx context.Context, event playerEvent) {
 			}
 		}
 	}
+}
+
+// send is shared by real events and the user-triggered delivery check.
+// Error text intentionally excludes capability URLs, tokens and raw responses.
+func (p *PushManager) send(ctx context.Context, payload []byte, sub webpush.Subscription) (int, error) {
+	// webpush-go v1.4 adds mailto: to non-HTTPS contacts itself.
+	response, err := webpush.SendNotificationWithContext(ctx, payload, &sub, &webpush.Options{
+		HTTPClient: pushAuthClient{p}, Subscriber: strings.TrimPrefix(p.contact, "mailto:"), VAPIDPublicKey: p.state.PublicKey,
+		VAPIDPrivateKey: p.state.PrivateKey, TTL: 60, Urgency: webpush.UrgencyHigh,
+	})
+	if response == nil {
+		return 0, errors.New("Could not contact the push service; check server connectivity and push configuration")
+	}
+	defer response.Body.Close()
+	if err == nil && response.StatusCode >= 200 && response.StatusCode < 300 {
+		return response.StatusCode, nil
+	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	_ = json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&body)
+	reason := ""
+	// Apple's documented error codes are useful diagnostics without disclosing
+	// arbitrary response content from a user-supplied endpoint.
+	switch body.Reason {
+	case "BadJwtToken", "BadAuthorizationHeader", "VapidPkHashMismatch", "BadTtl", "BadUrgency", "BadWebPushRequest", "ExpiredToken", "BadDeviceToken", "Unregistered", "TooManyRequests", "PayloadTooLarge":
+		reason = ", " + body.Reason
+	}
+	return response.StatusCode, fmt.Errorf("Push service rejected the notification (HTTP %d%s)", response.StatusCode, reason)
+}
+
+func (p *PushManager) eventPayload(event playerEvent) []byte {
+	profile := serverProfile{DisplayName: event.Server}
+	if p.watch != nil {
+		profile = p.watch.api.profile(event.Server)
+	}
+	body := "✨ " + event.Player + " joined the adventure!"
+	if event.Action == "left" {
+		body = "👋 " + event.Player + " left the world. See you soon!"
+	}
+	payload, _ := json.Marshal(map[string]string{"title": profile.DisplayName, "body": body, "url": "/servers/" + url.PathEscape(event.Server), "icon": profile.iconURL(event.Server)})
+	return payload
 }
 
 // Restrict push endpoints to HTTPS and resolve/dial public addresses ourselves.
@@ -217,7 +289,7 @@ func publicPushIP(ip net.IP) bool {
 	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !ip.IsUnspecified() && !(ip.To4() != nil && (ip.To4()[0] == 0 || ip.To4()[0] == 100 && ip.To4()[1] >= 64 && ip.To4()[1] <= 127 || ip.To4()[0] >= 224))
 }
 func pushHTTPClient() *http.Client {
-	transport := &http.Transport{TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second,
+	transport := &http.Transport{ForceAttemptHTTP2: true, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(addr)
 			if err != nil {
@@ -300,11 +372,11 @@ func (a *API) pushHandler(w http.ResponseWriter, r *http.Request) {
 		bad(w, 400, "Invalid push request")
 		return
 	}
-	if request.Action != "status" && request.Action != "subscribe" && request.Action != "unsubscribe" {
+	if request.Action != "status" && request.Action != "subscribe" && request.Action != "unsubscribe" && request.Action != "test" {
 		bad(w, 400, "Invalid push action")
 		return
 	}
-	if request.Action == "subscribe" {
+	if request.Action == "subscribe" || request.Action == "status" && request.Subscription.Endpoint != "" {
 		if err := validatePushSubscription(request.Subscription); err != nil {
 			bad(w, 400, err.Error())
 			return
@@ -323,6 +395,24 @@ func (a *API) pushHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	p.mu.Lock()
 	old, exists := p.state.Devices[request.Endpoint]
+	if request.Action == "test" {
+		p.mu.Unlock()
+		if !exists || !old.Servers[request.Server] {
+			bad(w, 409, "Enable notifications for this server on this device first")
+			return
+		}
+		profile := a.profile(request.Server)
+		payload, _ := json.Marshal(map[string]string{"title": profile.DisplayName, "body": "🔔 Ding! You’re ready for little updates from your world.", "url": "/servers/" + url.PathEscape(request.Server), "icon": profile.iconURL(request.Server)})
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		_, err := p.send(ctx, payload, old.Subscription)
+		if err != nil {
+			bad(w, 502, err.Error())
+			return
+		}
+		respond(w, 200, map[string]bool{"accepted": true})
+		return
+	}
 	device := pushDevice{Subscription: old.Subscription, Servers: make(map[string]bool)}
 	for name, enabled := range old.Servers {
 		device.Servers[name] = enabled
@@ -338,7 +428,11 @@ func (a *API) pushHandler(w http.ResponseWriter, r *http.Request) {
 	} else if request.Action == "unsubscribe" {
 		delete(device.Servers, request.Server)
 	}
-	if request.Action != "status" {
+	refreshKeys := request.Action == "status" && exists && request.Subscription.Endpoint != "" && device.Subscription != request.Subscription
+	if refreshKeys {
+		device.Subscription = request.Subscription
+	}
+	if request.Action != "status" || refreshKeys {
 		if len(device.Servers) == 0 {
 			delete(p.state.Devices, request.Endpoint)
 		} else {

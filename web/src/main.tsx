@@ -9,7 +9,7 @@ import NotificationBell from './NotificationBell'
 import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from 'react-router'
 
 type Edition = 'bedrock' | 'java'
-type Server = { name: string; edition: Edition; status: string; port?: number; host?: string; protocol?: string }
+type Server = { name: string; displayName?: string; iconUrl?: string; edition: Edition; status: string; port?: number; host?: string; protocol?: string }
 type CreateServer = { name: string; edition: Edition; port: number; worldPath: string; backupPath: string; backupUrl: string; acceptEula: boolean }
 type ImportSource = 'none' | 'world' | 'file' | 'path' | 'drive'
 type BackupConfig = { configured: boolean; interval: string; destination: string }
@@ -46,7 +46,7 @@ function Login({ onSuccess }: { onSuccess: () => void }) {
     <div className="login-page">
       <div className="login-glow" />
       <div className="login-card">
-        <div className="login-mark">◆</div>
+        <div className="login-mark"><img src="/icons/icon-192.png?v=grass-block-1" alt="Minecraft grass block" /></div>
         <p className="kicker">MINECRAFT SERVER CONTROL</p>
         <h1>Welcome back.</h1>
         <p className="muted">Enter your password to manage your worlds.</p>
@@ -76,7 +76,7 @@ function AuthGate() {
   })
 
   if (session.isLoading) {
-    return <div className="login-page"><div className="login-mark">◆</div></div>
+    return <div className="login-page"><div className="login-mark"><img src="/icons/icon-192.png?v=grass-block-1" alt="Minecraft grass block" /></div></div>
   }
   if (session.isError) {
     return (
@@ -110,12 +110,13 @@ function SignOutButton() {
 function ServerCard({ server }: { server: Server }) {
   const { data: backup } = useQuery({ queryKey: ['backup', server.name], queryFn: async () => (await api.get<BackupState>(`/servers/${encodeURIComponent(server.name)}/backup`)).data, refetchInterval: 5000 })
   const backupStatus = backup?.state === 'failed' ? 'Backup failed' : backup?.state === 'complete' ? 'Backed up' : backup?.state === 'capturing' || backup?.state === 'uploading' ? 'Backing up' : 'No backup yet'
-  return <div className="server-card-container"><Link className={`server-card ${server.status === 'running' ? 'server-card-running' : server.status === 'stopped' ? 'server-card-stopped' : ''}`} to={`/servers/${encodeURIComponent(server.name)}`} aria-label={`Open ${server.name} server dashboard`}><span className="server-symbol">{server.edition === 'bedrock' ? 'B' : 'J'}</span><span className="server-card-copy"><strong>{server.name}</strong><small>{server.edition === 'bedrock' ? 'Bedrock · UDP' : 'Java · TCP'}{server.port ? ` · ${server.port}` : ''}</small></span><span className="server-card-state"><span className={`status-pill ${server.status}`}><i/>{server.status}</span><small>{backupStatus}</small></span><span className="server-card-arrow" aria-hidden="true">→</span></Link><NotificationBell server={server.name} /></div>
+  return <div className="server-card-container"><Link className={`server-card ${server.status === 'running' ? 'server-card-running' : server.status === 'stopped' ? 'server-card-stopped' : ''}`} to={`/servers/${encodeURIComponent(server.name)}`} aria-label={`Open ${server.displayName || server.name} server dashboard`}><span className="server-symbol">{server.iconUrl ? <img src={server.iconUrl} alt="" /> : server.edition === 'bedrock' ? 'B' : 'J'}</span><span className="server-card-copy"><strong>{server.displayName || server.name}</strong><small>{server.edition === 'bedrock' ? 'Bedrock · UDP' : 'Java · TCP'}{server.port ? ` · ${server.port}` : ''}</small></span><span className="server-card-state"><span className={`status-pill ${server.status}`}><i/>{server.status}</span><small>{backupStatus}</small></span><span className="server-card-arrow" aria-hidden="true">→</span></Link><NotificationBell server={server.name} label={server.displayName || server.name} /></div>
 }
 function ServerDetailRoute({ servers, loading, error, backupConfigured }: { servers: Server[]; loading: boolean; error: unknown; backupConfigured: boolean }) {
   const { name } = useParams()
   const navigate = useNavigate()
-  useEffect(() => { document.title = name ? `${name} · MCUI` : 'MCUI'; return () => { document.title = 'MCUI' } }, [name])
+  const title = servers.find(server => server.name === name)?.displayName || name
+  useEffect(() => { document.title = title ? `${title} · MCUI` : 'MCUI'; return () => { document.title = 'MCUI' } }, [title])
   if (loading) return <main className="route-state"><p className="muted">Loading server…</p></main>
   if (error) return <main className="route-state"><h1>Connection unavailable</h1><p className="error">{errorMessage(error)}</p></main>
   const server = servers.find(item => item.name === name)
@@ -147,7 +148,7 @@ function App({ authEnabled }: { authEnabled: boolean }) {
     }
     return (await api.post<Server>('/servers', value)).data
   }, onSuccess: async (server) => { setMessage(`${server.name} created. Start it when ready.`); setForm({ name: '', edition: 'bedrock', port: 19132, worldPath: '', backupPath: '', backupUrl: '', acceptEula: false }); setBackupFile(null); setSource('none'); await qc.invalidateQueries({ queryKey: ['servers'] }) }, onError: e => setMessage(errorMessage(e)) })
-  return <div className="shell"><header><Link className="brand" to="/"><span className="brand-icon">◆</span><span>MCUI</span></Link>{authEnabled && <SignOutButton />}</header><Routes><Route path="/" element={<main><section className="intro"><div><p className="kicker">YOUR SERVERS</p><h1>Make room for your next world.</h1><p className="muted">Create, start, back up, and stop Minecraft servers from one place. Each server keeps its own Compose file and world data.</p></div><div className="count"><strong>{servers.length}</strong><span>{servers.length === 1 ? 'server' : 'servers'}</span></div></section><div className="grid"><section className="panel servers"><div className="section-heading"><div><p className="kicker">OVERVIEW</p><h2>Servers</h2></div><span className="live"><i/>Refreshes every 5s</span></div><div className="backup-banner"><strong>Google Drive backups</strong><span>{backupConfig?.configured ? `Ready · ${backupConfig.interval === '0s' ? 'manual only' : `scheduled every ${backupConfig.interval}`}` : 'Setup required: add rclone.conf to backup/'}</span></div>{isLoading ? <p className="muted">Loading servers…</p> : error ? <p className="error">{errorMessage(error)}</p> : servers.length === 0 ? <div className="empty"><div className="empty-icon">▦</div><h3>No servers yet</h3><p>Set up your first Bedrock or Java server using the form.</p></div> : <div className="server-list">{servers.map(server => <ServerCard key={server.name} server={server}/>)}</div>}</section><section className="panel create">
+  return <div className="shell"><header><Link className="brand" to="/"><span className="brand-icon"><img src="/icons/icon-192.png?v=grass-block-1" alt="" /></span><span>MCUI</span></Link>{authEnabled && <SignOutButton />}</header><Routes><Route path="/" element={<main><section className="intro"><div><p className="kicker">YOUR SERVERS</p><h1>Make room for your next world.</h1><p className="muted">Create, start, back up, and stop Minecraft servers from one place. Each server keeps its own Compose file and world data.</p></div><div className="count"><strong>{servers.length}</strong><span>{servers.length === 1 ? 'server' : 'servers'}</span></div></section><div className="grid"><section className="panel servers"><div className="section-heading"><div><p className="kicker">OVERVIEW</p><h2>Servers</h2></div><span className="live"><i/>Refreshes every 5s</span></div><div className="backup-banner"><strong>Google Drive backups</strong><span>{backupConfig?.configured ? `Ready · ${backupConfig.interval === '0s' ? 'manual only' : `scheduled every ${backupConfig.interval}`}` : 'Setup required: add rclone.conf to backup/'}</span></div>{isLoading ? <p className="muted">Loading servers…</p> : error ? <p className="error">{errorMessage(error)}</p> : servers.length === 0 ? <div className="empty"><div className="empty-icon">▦</div><h3>No servers yet</h3><p>Set up your first Bedrock or Java server using the form.</p></div> : <div className="server-list">{servers.map(server => <ServerCard key={server.name} server={server}/>)}</div>}</section><section className="panel create">
   <p className="kicker">NEW SERVER</p><h2>Create a server</h2>
   <p className="muted form-intro">Start fresh, import a world, or create from an MCUI backup.</p>
   <form onSubmit={e => {
