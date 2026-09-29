@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import Infrastructure from './Infrastructure'
@@ -59,6 +60,19 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const address = server.port ? `${server.host || window.location.hostname}:${server.port}` : ''
+  const [searchParams] = useSearchParams()
+  const joinRequested = searchParams.get('join') === '1'
+  const minecraftURL = server.edition === 'bedrock' && server.port
+    ? `minecraft://connect?${new URLSearchParams({ serverUrl: server.host || window.location.hostname, serverPort: String(server.port) })}`
+    : ''
+  const attemptedJoin = useRef('')
+  useEffect(() => {
+    if (!joinRequested) { attemptedJoin.current = ''; return }
+    if (!minecraftURL || attemptedJoin.current === minecraftURL) return
+    attemptedJoin.current = minecraftURL
+    // Mobile browsers may require another gesture; keep the link visible below.
+    try { window.location.assign(minecraftURL) } catch { /* The fallback remains available. */ }
+  }, [joinRequested, minecraftURL])
 
   const logs = useQuery({
     queryKey: ['logs', key],
@@ -116,6 +130,12 @@ export default function ServerDashboard({ server, onBack, backupConfigured }: {
   const recentLogs = logs.data?.logs?.trim().split('\n').slice(-12).join('\n') || 'No log output yet.'
 
   return <main className="dashboard">
+    {joinRequested && <section className="panel minecraft-launch" aria-label="Join Minecraft">
+      <h2>{minecraftURL ? 'Your world is waiting ✨' : 'Join this world'}</h2>
+      <p className="muted">{minecraftURL ? 'Opening Minecraft… If it doesn’t open, tap below.' : server.edition === 'java' ? 'Open Minecraft Java Edition and connect using this server address.' : 'This server needs a published game port before you can join.'}</p>
+      {minecraftURL && <a className="primary minecraft-launch-button" href={minecraftURL}>Open Minecraft</a>}
+      {address && <p className="muted">{address}</p>}
+    </section>}
     <button className="back-button" onClick={onBack}>← All servers</button>
 
     <section className="dashboard-hero">

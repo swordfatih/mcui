@@ -16,6 +16,8 @@ self.addEventListener('notificationclick', event => {
   let target
   try { target = new URL(event.notification.data?.url || '/', self.location.origin) } catch { target = new URL('/', self.location.origin) }
   if (target.origin !== self.location.origin || !target.pathname.startsWith('/servers/')) target.href = self.location.origin + '/'
+  // Open an HTTPS page first so it can hand off to Minecraft and offer a fallback.
+  if (target.pathname.startsWith('/servers/')) target.searchParams.set('join', '1')
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     for (const client of windows) {

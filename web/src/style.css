@@ -340,6 +340,9 @@ label small {
   justify-content: space-between;
 }
 
+.minecraft-launch { margin-bottom: 20px; }
+.minecraft-launch-button { display: inline-flex; align-items: center; padding: 12px 18px; text-decoration: none; }
+
 .primary span {
   font-size: 18px;
   line-height: 16px;
@@ -1152,13 +1155,29 @@ footer span {
 
 .server-symbol img, .dashboard-emblem img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .server-profile-editor { margin-block: 18px; }
-.server-profile-editor form { display: grid; gap: 12px; margin-top: 18px; }
-.server-profile-editor input[type="text"], .server-profile-editor input:not([type]) { width: 100%; }
-.server-icon-editor { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
-.server-icon-editor img { border-radius: 12px; object-fit: cover; }
-.server-icon-editor label { display: block; margin-bottom: 8px; }
-.server-icon-editor input { max-width: 100%; }
-.server-icon-editor .muted { font-size: 13px; margin: 8px 0; }
+.server-profile-editor form { display: grid; gap: 24px; margin-top: 24px; }
+.profile-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+.profile-field { display: grid; gap: 10px; min-width: 0; }
+.profile-field > label:not(.pack-dropzone), .profile-field-label { color: #dce8d6; font-size: 13px; font-weight: 600; }
+.profile-name-control { display: flex; align-items: center; gap: 12px; padding: 0 16px; border: 1px solid #45613e; border-radius: 12px; background: #142319; transition: border-color .15s, box-shadow .15s; }
+.profile-name-control:focus-within { border-color: #b7e98e; box-shadow: 0 0 0 3px #b7e98e18; }
+.profile-name-control > svg { flex: none; width: 19px; height: 19px; color: #9bb590; }
+.profile-name-control input { width: 100%; min-width: 0; padding: 15px 0; border: 0; outline: none; background: transparent; color: #edf5e7; font: inherit; font-size: 16px; box-shadow: none; }
+.profile-name-control input::placeholder { color: #82957d; }
+.profile-name-control:has(input:disabled) { opacity: .6; }
+.profile-field-hint { display: flex; justify-content: space-between; gap: 12px; margin: 0; color: #9cac96; font-size: 12px; line-height: 1.6; }
+.profile-field-hint > span:last-child { flex-shrink: 0; }
+.profile-picture-dropzone { min-height: 184px; transition: background .15s, border-color .15s; }
+.profile-picture-dropzone strong { max-width: 100%; overflow-wrap: anywhere; color: #e6eedf; font-size: 14px; }
+.profile-picture-dropzone:focus-within { outline: 2px solid #b7e98e; outline-offset: 3px; }
+.profile-picture-dropzone.is-disabled { opacity: .6; cursor: wait; }
+.profile-picture-dropzone.is-disabled input { cursor: wait; }
+.profile-picture-preview { display: block; border-radius: 14px; object-fit: cover; box-shadow: 0 4px 16px #0004; }
+.profile-picture-footer { display: flex; align-items: start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.profile-remove-picture { padding: 4px 0; border: 0; background: transparent; color: #c5d7ba; font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.profile-remove-picture:hover { color: #e1f5d3; }
+.profile-remove-picture:focus-visible { outline: 2px solid #b7e98e; outline-offset: 4px; border-radius: 3px; }
+@media (max-width: 650px) { .profile-fields { grid-template-columns: 1fr; gap: 22px; } }
 .profile-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .notification-inline { position: relative; inset: auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
 .notification-inline > span { font-size: 13px; color: #b6c5b2; }
