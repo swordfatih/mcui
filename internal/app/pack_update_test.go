@@ -25,6 +25,7 @@ func makeAddon(t *testing.T, resourceUUID, version, texture string) []byte {
 	z := zip.NewWriter(&body)
 	files := map[string]string{
 		"Resource/manifest.json":                 updateManifest("Actions Resource", resourceUUID, "resources", version),
+		"Resource/blocks.json":                   `{"format_version":"1.19.30","minecraft:hidden":{"textures":"hidden","sound":"stone"},"minecraft:other":{"textures":"other"}}`,
 		"Resource/textures/blocks/hidden.png":    texture,
 		"Resource/textures/terrain_texture.json": `{"texture_data":{"hidden":{"textures":"textures/blocks/hidden"},"other":{"textures":"textures/blocks/other"}}}`,
 		"Behavior/manifest.json":                 updateManifest("Actions Behavior", updateBehaviorUUID, "data", version),
@@ -177,6 +178,70 @@ func TestSingleMCPACKUpdateKeepsAbsentDisabledAsset(t *testing.T) {
 	}
 }
 
+func TestPackUpdateReappliesSubpackAsset(t *testing.T) {
+	a, rp, _, _ := setupPackUpdateServer(t)
+	archived := filepath.Join(a.Root, "server", ".mcui", "archived-assets", "resource", "actions-resource", "SP2", "textures", "blocks", "slab", "hidden.png")
+	if err := os.MkdirAll(filepath.Dir(archived), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(archived, []byte("old slab"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := assetHash(archived)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(a.Root, "server", ".mcui", "asset-state", "resource", "actions-resource.json")
+	state, err := readAssetState(statePath, updateResourceUUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Assets = append(state.Assets, assetRecord{Path: "textures/blocks/slab/hidden.png", Layer: "SP2", Hash: hash})
+	if err := writeAssetState(statePath, state); err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	z := zip.NewWriter(&body)
+	for path, value := range map[string]string{
+		"Resource/manifest.json":                                `{"header":{"name":"Actions Resource","uuid":"` + updateResourceUUID + `","version":[1,11,1]},"modules":[{"type":"resources"}],"subpacks":[{"folder_name":"SP2","name":"SP2"}]}`,
+		"Resource/textures/blocks/hidden.png":                   "new main",
+		"Resource/subpacks/SP2/textures/blocks/slab/hidden.png": "new slab",
+	} {
+		writer, err := z.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archive := body.Bytes()
+	preview := postPackArchive(t, a, "mode=update&preview=1", "actions.mcpack", archive)
+	if preview.Code != 200 {
+		t.Fatalf("preview: %d %s", preview.Code, preview.Body.String())
+	}
+	var plan packUpdatePreview
+	if err := json.Unmarshal(preview.Body.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Updates) != 1 || plan.Updates[0].Disabled != 2 || plan.Updates[0].Missing != 0 {
+		t.Fatalf("subpack asset not matched: %+v", plan)
+	}
+	result := postPackArchive(t, a, "mode=update&expectedHash="+plan.Revision, "actions.mcpack", archive)
+	if result.Code != 200 {
+		t.Fatalf("update: %d %s", result.Code, result.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(rp, "subpacks", "SP2", "textures", "blocks", "slab", "hidden.png")); !os.IsNotExist(err) {
+		t.Fatalf("subpack texture returned: %v", err)
+	}
+	if content, err := os.ReadFile(archived); err != nil || string(content) != "new slab" {
+		t.Fatalf("subpack archive was not refreshed: %s %v", content, err)
+	}
+}
+
 func TestPackUpdateReappliesDisabledAssetsAndWorldVersions(t *testing.T) {
 	a, rp, bp, world := setupPackUpdateServer(t)
 	archive := makeAddon(t, updateResourceUUID, `[1,11,1]`, "new image")
@@ -188,7 +253,7 @@ func TestPackUpdateReappliesDisabledAssetsAndWorldVersions(t *testing.T) {
 	if err := json.Unmarshal(preview.Body.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Updates) != 2 || len(plan.Revision) != 64 {
+	if len(plan.Updates) != 2 || len(plan.Revision) != 64 || plan.Updates[0].Folder == "" || plan.Updates[1].Folder == "" {
 		t.Fatalf("wrong update plan: %+v", plan)
 	}
 	if content, _ := os.ReadFile(filepath.Join(rp, "manifest.json")); !strings.Contains(string(content), `[1,10,0]`) {
@@ -200,6 +265,15 @@ func TestPackUpdateReappliesDisabledAssetsAndWorldVersions(t *testing.T) {
 	result := postAddon(t, a, "mode=update&expectedHash="+plan.Revision, archive)
 	if result.Code != 200 {
 		t.Fatalf("update: %d %s", result.Code, result.Body.String())
+	}
+	var outcome struct {
+		Updates []packUpdateSummary `json:"updates"`
+	}
+	if err := json.Unmarshal(result.Body.Bytes(), &outcome); err != nil {
+		t.Fatal(err)
+	}
+	if len(outcome.Updates) != 2 || outcome.Updates[0].Disabled+outcome.Updates[1].Disabled != 1 {
+		t.Fatalf("update result omitted disabled asset count: %+v", outcome)
 	}
 	for _, path := range []string{filepath.Join(rp, "manifest.json"), filepath.Join(bp, "manifest.json")} {
 		if content, err := os.ReadFile(path); err != nil || !strings.Contains(string(content), `[1,11,1]`) {
@@ -218,6 +292,9 @@ func TestPackUpdateReappliesDisabledAssetsAndWorldVersions(t *testing.T) {
 	}
 	if content, err := os.ReadFile(filepath.Join(rp, "textures", "terrain_texture.json")); err != nil || strings.Contains(string(content), `"hidden"`) || !strings.Contains(string(content), `"other"`) {
 		t.Fatalf("catalog not updated: %s %v", content, err)
+	}
+	if content, err := os.ReadFile(filepath.Join(rp, "blocks.json")); err != nil || strings.Contains(string(content), `"minecraft:hidden"`) || !strings.Contains(string(content), `"minecraft:other"`) {
+		t.Fatalf("block override not removed: %s %v", content, err)
 	}
 	for _, tc := range []struct{ kind, uuid string }{{"resource", updateResourceUUID}, {"behavior", updateBehaviorUUID}} {
 		refs, err := readPackRefs(filepath.Join(world, packFile(tc.kind)))
@@ -245,6 +322,9 @@ func TestPackUpdateReappliesDisabledAssetsAndWorldVersions(t *testing.T) {
 	}
 	if content, err := os.ReadFile(filepath.Join(rp, "textures/terrain_texture.json")); err != nil || !strings.Contains(string(content), `"hidden"`) {
 		t.Fatalf("new catalog reference not restored: %s %v", content, err)
+	}
+	if content, err := os.ReadFile(filepath.Join(rp, "blocks.json")); err != nil || !strings.Contains(string(content), `"minecraft:hidden"`) {
+		t.Fatalf("block override not restored: %s %v", content, err)
 	}
 }
 

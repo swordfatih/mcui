@@ -6,12 +6,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
 type assetPatch struct {
 	File     string          `json:"file"`
 	Key      string          `json:"key,omitempty"`
+	Layer    string          `json:"layer,omitempty"`
 	Index    int             `json:"index,omitempty"`
 	Value    json.RawMessage `json:"value"`
 	Requires []string        `json:"requires,omitempty"`
@@ -49,18 +51,19 @@ func texturePaths(value any) []string {
 	}
 	return nil
 }
-func referenceEdits(layerDir string, action string, records []assetRecord) ([]assetFileEdit, []assetRecord, []string, error) {
+func referenceEdits(layerDir string, action string, records []assetRecord, prior ...assetRecord) ([]assetFileEdit, []assetRecord, []assetPatch, []string, error) {
 	byPath := map[string]int{}
 	for i, record := range records {
 		byPath[record.Path] = i
 	}
 	warnings := []string{}
 	edits := []assetFileEdit{}
+	catalogPatches := []assetPatch{}
 	files := []string{"textures/terrain_texture.json", "textures/flipbook_textures.json", "textures/flipbook_texture.json", "textures/textures_list.json", "blocks.json"}
 	for _, rel := range files {
 		path, err := assetPath(layerDir, rel)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		before, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
@@ -68,7 +71,7 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 				for _, record := range records {
 					for _, patch := range record.Patches {
 						if patch.File == rel {
-							return nil, nil, nil, fmt.Errorf("%s is missing; restore its catalog before restoring this asset", rel)
+							return nil, nil, nil, nil, fmt.Errorf("%s is missing; restore its catalog before restoring this asset", rel)
 						}
 					}
 				}
@@ -76,7 +79,7 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 			continue
 		}
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		if _, selected := byPath[rel]; selected && action == "archive" {
 			continue
@@ -86,22 +89,69 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 		if rel == "blocks.json" {
 			var blocks map[string]json.RawMessage
 			if err := json.Unmarshal(stripJSONComments(before), &blocks); err != nil {
-				return nil, nil, nil, fmt.Errorf("%s: %w", rel, err)
+				return nil, nil, nil, nil, fmt.Errorf("%s: %w", rel, err)
 			}
 			if blocks == nil {
-				return nil, nil, nil, fmt.Errorf("%s: expected an object", rel)
+				return nil, nil, nil, nil, fmt.Errorf("%s: expected an object", rel)
 			}
-			if action == "restore" {
+			if action == "archive" {
+				removedAliases := map[string]string{}
+				for _, record := range append(records, prior...) {
+					if record.Layer != records[0].Layer {
+						continue
+					}
+					for _, patch := range record.Patches {
+						if patch.File == "textures/terrain_texture.json" {
+							removedAliases[patch.Key] = record.Path
+						}
+					}
+				}
+				for block, raw := range blocks {
+					if block == "format_version" {
+						continue
+					}
+					var item map[string]any
+					if json.Unmarshal(raw, &item) != nil {
+						continue
+					}
+					aliases := append(texturePaths(item["textures"]), texturePaths(item["carried_textures"])...)
+					matched, all := false, len(aliases) > 0
+					required := map[string]bool{}
+					for _, alias := range aliases {
+						if path, ok := removedAliases[alias]; ok {
+							matched = true
+							required[path] = true
+						} else {
+							all = false
+						}
+					}
+					if !matched {
+						continue
+					}
+					if !all || !strings.HasPrefix(block, "minecraft:") {
+						warnings = append(warnings, "blocks.json: "+block+" still references a disabled texture alias; review this block")
+						continue
+					}
+					requires := make([]string, 0, len(required))
+					for path := range required {
+						requires = append(requires, path)
+					}
+					sort.Strings(requires)
+					catalogPatches = append(catalogPatches, assetPatch{File: rel, Key: block, Layer: records[0].Layer, Value: raw, Requires: requires})
+					delete(blocks, block)
+					changed = true
+				}
+			} else if action == "restore" {
 				for _, record := range records {
 					for _, patch := range record.Patches {
 						if patch.File != rel {
 							continue
 						}
 						if patch.Key == "" || patch.Key == "format_version" {
-							return nil, nil, nil, fmt.Errorf("%s: invalid block reference", rel)
+							return nil, nil, nil, nil, fmt.Errorf("%s: invalid block reference", rel)
 						}
 						if _, exists := blocks[patch.Key]; exists {
-							return nil, nil, nil, fmt.Errorf("%s: block %s already exists", rel, patch.Key)
+							return nil, nil, nil, nil, fmt.Errorf("%s: block %s already exists", rel, patch.Key)
 						}
 						blocks[patch.Key] = patch.Value
 						changed = true
@@ -110,12 +160,12 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 			}
 			after, err = json.MarshalIndent(blocks, "", "  ")
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 		} else if rel == "textures/terrain_texture.json" {
 			var doc map[string]json.RawMessage
 			if err := json.Unmarshal(stripJSONComments(before), &doc); err != nil {
-				return nil, nil, nil, fmt.Errorf("%s: %w", rel, err)
+				return nil, nil, nil, nil, fmt.Errorf("%s: %w", rel, err)
 			}
 			var textureData map[string]json.RawMessage
 			if err := json.Unmarshal(doc["texture_data"], &textureData); err != nil {
@@ -165,7 +215,7 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 							continue
 						}
 						if _, exists := textureData[patch.Key]; exists {
-							return nil, nil, nil, fmt.Errorf("%s: alias %s already exists", rel, patch.Key)
+							return nil, nil, nil, nil, fmt.Errorf("%s: alias %s already exists", rel, patch.Key)
 						}
 						textureData[patch.Key] = patch.Value
 						changed = true
@@ -174,16 +224,16 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 			}
 			doc["texture_data"], err = json.Marshal(textureData)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 			after, err = json.MarshalIndent(doc, "", "  ")
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 		} else {
 			var list []json.RawMessage
 			if err := json.Unmarshal(stripJSONComments(before), &list); err != nil {
-				return nil, nil, nil, fmt.Errorf("%s: %w", rel, err)
+				return nil, nil, nil, nil, fmt.Errorf("%s: %w", rel, err)
 			}
 			if action == "archive" {
 				kept := make([]json.RawMessage, 0, len(list))
@@ -232,7 +282,7 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 				for _, patch := range patches {
 					for _, existing := range list {
 						if string(existing) == string(patch.Value) {
-							return nil, nil, nil, fmt.Errorf("%s: entry already exists", rel)
+							return nil, nil, nil, nil, fmt.Errorf("%s: entry already exists", rel)
 						}
 					}
 					at := patch.Index
@@ -247,7 +297,7 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 			}
 			after, err = json.MarshalIndent(list, "", "  ")
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 		}
 		if !changed {
@@ -259,37 +309,6 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 		}
 	}
 	if action == "archive" {
-		aliases := map[string]bool{}
-		for _, record := range records {
-			for _, patch := range record.Patches {
-				if patch.File == "textures/terrain_texture.json" {
-					aliases[patch.Key] = true
-				}
-			}
-		}
-		if len(aliases) > 0 {
-			if content, err := os.ReadFile(filepath.Join(layerDir, "blocks.json")); err == nil {
-				var blocks map[string]json.RawMessage
-				if json.Unmarshal(stripJSONComments(content), &blocks) == nil {
-					for block, raw := range blocks {
-						if block == "format_version" {
-							continue
-						}
-						var item map[string]any
-						if json.Unmarshal(raw, &item) != nil {
-							continue
-						}
-						for _, field := range []string{"textures", "carried_textures"} {
-							for _, alias := range texturePaths(item[field]) {
-								if aliases[alias] {
-									warnings = append(warnings, "blocks.json: "+block+" still uses texture alias "+alias)
-								}
-							}
-						}
-					}
-				}
-			}
-		}
 		known := map[string]bool{}
 		for _, file := range files {
 			known[file] = true
@@ -332,5 +351,5 @@ func referenceEdits(layerDir string, action string, records []assetRecord) ([]as
 			return nil
 		})
 	}
-	return edits, records, warnings, nil
+	return edits, records, catalogPatches, warnings, nil
 }

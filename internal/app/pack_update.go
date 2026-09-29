@@ -15,6 +15,7 @@ import (
 type packUpdateSummary struct {
 	Kind     string `json:"kind"`
 	Name     string `json:"name"`
+	Folder   string `json:"folder"`
 	From     string `json:"from"`
 	To       string `json:"to"`
 	Disabled int    `json:"disabled"`
@@ -207,7 +208,7 @@ func preparePackUpdates(a *API, name, data string, listing packListing, candidat
 			cleanup()
 			return nil, nil, fmt.Errorf("Installed pack %s is missing", matched.Name)
 		}
-		update := packUpdate{source: filepath.Dir(path), target: target, uuid: manifest.Header.UUID, kind: kind, folder: folder, version: manifest.Header.Version, metaStage: metaStage, summary: packUpdateSummary{Kind: kind, Name: matched.Name, From: displayPackVersion(matched.Version), To: displayPackVersion(manifest.Header.Version)}}
+		update := packUpdate{source: filepath.Dir(path), target: target, uuid: manifest.Header.UUID, kind: kind, folder: folder, version: manifest.Header.Version, metaStage: metaStage, summary: packUpdateSummary{Kind: kind, Name: matched.Name, Folder: folder, From: displayPackVersion(matched.Version), To: displayPackVersion(manifest.Header.Version)}}
 		if kind == "resource" {
 			update.statePath = filepath.Join(serverRoot, ".mcui", "asset-state", kind, folder+".json")
 			update.archiveDir = filepath.Join(serverRoot, ".mcui", "archived-assets", kind, folder)
@@ -299,6 +300,7 @@ func prepareUpdatedAssetState(serverRoot string, update *packUpdate, manifest pa
 		}
 		if !layers[layer] {
 			update.warnings = append(update.warnings, "Subpack "+layer+" is absent from the new manifest; its disabled files remain saved")
+			update.summary.Missing += len(records)
 			next.Assets = append(next.Assets, records...)
 			continue
 		}
@@ -306,10 +308,17 @@ func prepareUpdatedAssetState(serverRoot string, update *packUpdate, manifest pa
 		if err != nil || !info.IsDir() {
 			return fmt.Errorf("New subpack %s is missing", layer)
 		}
-		edits, revised, warnings, err := referenceEdits(layerDir, "archive", records)
+		edits, revised, catalogPatches, warnings, err := referenceEdits(layerDir, "archive", records)
 		if err != nil {
 			return err
 		}
+		kept := next.CatalogPatches[:0]
+		for _, patch := range next.CatalogPatches {
+			if patch.Layer != layer && patch.Layer != "" {
+				kept = append(kept, patch)
+			}
+		}
+		next.CatalogPatches = append(kept, catalogPatches...)
 		update.warnings = append(update.warnings, warnings...)
 		for _, edit := range edits {
 			if err := writeAssetJSON(edit.Path, edit.After); err != nil {

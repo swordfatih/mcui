@@ -45,6 +45,8 @@ type API struct {
 	Root   string
 	mu     sync.Mutex
 	backup *BackupManager
+	push   *PushManager
+	logs   *LogWatch
 }
 
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -208,8 +210,18 @@ func Serve(addr, root string) error {
 		return err
 	}
 	a.backup = backup
-	go backup.schedule(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a.push, err = newPushManager(root)
+	if err != nil {
+		return err
+	}
+	a.logs = newLogWatch(ctx, a, a.push)
+	a.push.watch = a.logs
+	a.push.start(ctx)
+	go backup.schedule(ctx)
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/push/", a.pushHandler)
 	mux.HandleFunc("/api/servers", a.servers)
 	mux.HandleFunc("/api/backups/config", a.backupConfigHandler)
 	mux.HandleFunc("/api/servers/", a.action)

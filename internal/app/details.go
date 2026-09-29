@@ -108,7 +108,12 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, action := parts[0], parts[1]
-	if _, _, err := a.minecraftService(name); err != nil {
+	if action == "logs" {
+		if _, err := a.composeFile(name); err != nil {
+			bad(w, 404, "Server not found")
+			return
+		}
+	} else if _, _, err := a.minecraftService(name); err != nil {
 		bad(w, 404, "Server not found")
 		return
 	}
@@ -142,16 +147,16 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 			bad(w, 405, "Method not allowed")
 			return
 		}
-		_, service, _ := a.minecraftService(name)
-		args, _ := a.composeArgs(name)
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-		out, err := exec.CommandContext(ctx, "docker", append(args, "logs", "--tail", "200", "--no-color", service)...).CombinedOutput()
-		if err != nil {
-			bad(w, 502, "Docker logs: "+cleanError(out))
+		if a.logs == nil {
+			bad(w, 503, "Log watcher unavailable")
 			return
 		}
-		respond(w, 200, map[string]string{"logs": string(out)})
+		output, err := a.logs.snapshot(r.Context(), name)
+		if err != nil {
+			bad(w, 502, err.Error())
+			return
+		}
+		respond(w, 200, map[string]string{"logs": output})
 	case "command":
 		if r.Method != http.MethodPost {
 			bad(w, 405, "Method not allowed")

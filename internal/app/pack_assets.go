@@ -214,12 +214,19 @@ func writeAssetState(path string, state assetState) error {
 
 func readyCatalogPatches(layerDir string, selected []assetRecord, pending []assetPatch) ([]assetPatch, []string, error) {
 	selectedPaths := make(map[string]bool, len(selected))
+	layer := ""
+	if len(selected) > 0 {
+		layer = selected[0].Layer
+	}
 	for _, record := range selected {
 		selectedPaths[record.Path] = true
 	}
 	ready := []assetPatch{}
 	warnings := []string{}
 	for _, patch := range pending {
+		if patch.Layer != "" && patch.Layer != layer {
+			continue
+		}
 		if len(patch.Requires) == 0 {
 			return nil, nil, errors.New("Catalog patch has no asset requirements")
 		}
@@ -553,7 +560,11 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 	if len(ready) > 0 {
 		recordsForEdits = append(recordsForEdits, assetRecord{Patches: ready})
 	}
-	edits, recordsForEdits, warnings, err := referenceEdits(layerDir, change.Action, recordsForEdits)
+	prior := []assetRecord{}
+	if change.Action == "archive" {
+		prior = state.Assets
+	}
+	edits, recordsForEdits, catalogPatches, warnings, err := referenceEdits(layerDir, change.Action, recordsForEdits, prior...)
 	if err != nil {
 		bad(w, 409, err.Error())
 		return
@@ -568,6 +579,9 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 			}
 			changes = append(changes, label)
 		}
+	}
+	for _, patch := range catalogPatches {
+		changes = append(changes, patch.File+" · "+patch.Key)
 	}
 	if change.Preview {
 		respond(w, 200, map[string]any{"count": len(moves), "edits": len(edits), "changes": changes, "warnings": warnings})
@@ -610,6 +624,7 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 	next := assetState{UUID: state.UUID, Assets: []assetRecord{}, CatalogPatches: state.CatalogPatches}
 	if change.Action == "archive" {
 		next.Assets = append(next.Assets, state.Assets...)
+		next.CatalogPatches = append(next.CatalogPatches, catalogPatches...)
 		for _, item := range moves {
 			next.Assets = append(next.Assets, item.record)
 		}

@@ -1139,3 +1139,14 @@ footer span {
     font-size: 32px;
   }
 }
+
+.server-card-container { position: relative; min-width: 0; }
+.server-card-container .server-card { padding-right: 65px; height: 100%; box-sizing: border-box; }
+.server-notifications { position: absolute; top: 18px; right: 14px; }
+.notification-bell { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 1px solid #53654f; border-radius: 50%; background: #18251b; color: #b6c5b2; cursor: pointer; }
+.notification-bell:hover, .notification-bell.is-subscribed { color: #d1f4b8; border-color: #a2d47d; background: #344f2e; }
+.notification-bell:focus-visible { outline: 2px solid #b7e98e; outline-offset: 3px; }
+.notification-bell:disabled { opacity: .5; cursor: wait; }
+.notification-message { position: absolute; z-index: 10; right: 0; top: 44px; width: min(290px, calc(100vw - 85px)); padding: 14px 34px 14px 14px; border: 1px solid #638455; border-radius: 10px; background: #17251b; box-shadow: 0 8px 24px #0008; color: #e9eee9; font-size: 13px; }
+.notification-message p { margin: 0; }
+.notification-message button { position: absolute; top: 5px; right: 5px; background: transparent; border: 0; color: inherit; font-size: 22px; cursor: pointer; }

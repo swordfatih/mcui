@@ -653,7 +653,7 @@ func (a *API) packsHandler(w http.ResponseWriter, r *http.Request, name string) 
 			bad(w, 500, err.Error())
 			return
 		}
-		respond(w, 200, map[string]any{"updated": len(updates), "warnings": preview.Warnings})
+		respond(w, 200, map[string]any{"updated": len(updates), "updates": preview.Updates, "warnings": preview.Warnings})
 		return
 	}
 	type install struct{ source, target string }

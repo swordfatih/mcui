@@ -112,7 +112,7 @@ export default function Console({ server }: { server: Server }) {
         <span className="infra-step">02</span>
         <div>
           <h3>Live output</h3>
-          <p>Last 200 lines from Docker Compose · refreshes every three seconds</p>
+          <p>Last 200 lines from the shared server log watcher · refreshes every three seconds</p>
         </div>
         <button className="console-refresh" type="button" onClick={() => logs.refetch()} disabled={logs.isFetching}>
           {logs.isFetching ? 'Refreshing…' : 'Refresh now'}

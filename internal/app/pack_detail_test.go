@@ -85,7 +85,7 @@ func TestPackDetailIconAndDelete(t *testing.T) {
 	request := `{"action":"archive","layer":"SP2","paths":["textures/blocks/sample.png"]}`
 	preview := httptest.NewRecorder()
 	a.packAssets(preview, httptest.NewRequest("POST", assetURL, strings.NewReader(strings.TrimSuffix(request, "}")+`,"preview":true}`)))
-	if preview.Code != 200 || !strings.Contains(preview.Body.String(), `"edits":1`) || !strings.Contains(preview.Body.String(), `still uses texture alias sample`) {
+	if preview.Code != 200 || !strings.Contains(preview.Body.String(), `"edits":1`) || !strings.Contains(preview.Body.String(), `still references a disabled texture alias`) {
 		t.Fatalf("preview: %d %s", preview.Code, preview.Body.String())
 	}
 	if _, err := os.Stat(texture); err != nil {

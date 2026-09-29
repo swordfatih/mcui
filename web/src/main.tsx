@@ -5,6 +5,7 @@ import axios from 'axios'
 import './style.css'
 import ServerDashboard from './ServerDashboard'
 import PackDetail from './PackDetail'
+import NotificationBell from './NotificationBell'
 import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from 'react-router'
 
 type Edition = 'bedrock' | 'java'
@@ -109,7 +110,7 @@ function SignOutButton() {
 function ServerCard({ server }: { server: Server }) {
   const { data: backup } = useQuery({ queryKey: ['backup', server.name], queryFn: async () => (await api.get<BackupState>(`/servers/${encodeURIComponent(server.name)}/backup`)).data, refetchInterval: 5000 })
   const backupStatus = backup?.state === 'failed' ? 'Backup failed' : backup?.state === 'complete' ? 'Backed up' : backup?.state === 'capturing' || backup?.state === 'uploading' ? 'Backing up' : 'No backup yet'
-  return <Link className={`server-card ${server.status === 'running' ? 'server-card-running' : server.status === 'stopped' ? 'server-card-stopped' : ''}`} to={`/servers/${encodeURIComponent(server.name)}`} aria-label={`Open ${server.name} server dashboard`}><span className="server-symbol">{server.edition === 'bedrock' ? 'B' : 'J'}</span><span className="server-card-copy"><strong>{server.name}</strong><small>{server.edition === 'bedrock' ? 'Bedrock · UDP' : 'Java · TCP'}{server.port ? ` · ${server.port}` : ''}</small></span><span className="server-card-state"><span className={`status-pill ${server.status}`}><i/>{server.status}</span><small>{backupStatus}</small></span><span className="server-card-arrow" aria-hidden="true">→</span></Link>
+  return <div className="server-card-container"><Link className={`server-card ${server.status === 'running' ? 'server-card-running' : server.status === 'stopped' ? 'server-card-stopped' : ''}`} to={`/servers/${encodeURIComponent(server.name)}`} aria-label={`Open ${server.name} server dashboard`}><span className="server-symbol">{server.edition === 'bedrock' ? 'B' : 'J'}</span><span className="server-card-copy"><strong>{server.name}</strong><small>{server.edition === 'bedrock' ? 'Bedrock · UDP' : 'Java · TCP'}{server.port ? ` · ${server.port}` : ''}</small></span><span className="server-card-state"><span className={`status-pill ${server.status}`}><i/>{server.status}</span><small>{backupStatus}</small></span><span className="server-card-arrow" aria-hidden="true">→</span></Link><NotificationBell server={server.name} /></div>
 }
 function ServerDetailRoute({ servers, loading, error, backupConfigured }: { servers: Server[]; loading: boolean; error: unknown; backupConfigured: boolean }) {
   const { name } = useParams()
