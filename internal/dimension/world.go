@@ -37,7 +37,9 @@ func Open(path string) (*World, error) {
 		return nil, errors.New("invalid Bedrock level.dat")
 	}
 	n := binary.LittleEndian.Uint32(raw[4:8])
-	if int(n) != len(raw)-8 {
+	// Bedrock worlds exist with the NBT payload size and with the complete
+	// level.dat size stored in this header field. Accept both observed forms.
+	if int(n) != len(raw)-8 && int(n) != len(raw) {
 		return nil, errors.New("invalid Bedrock level.dat length")
 	}
 	if _, err = readNBT(raw[8:]); err != nil {

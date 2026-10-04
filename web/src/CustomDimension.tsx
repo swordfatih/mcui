@@ -11,7 +11,11 @@ type Status = {
   dimensions?: { name: string; id: number; chunks: number }[]
   packs?: { name: string; kind: string; uuid: string }[]
 }
-const errorMessage = (error: unknown) => axios.isAxiosError(error) ? error.response?.data?.error || error.message : String(error)
+const errorMessage = (error: unknown) => {
+  if (!axios.isAxiosError(error)) return String(error)
+  if (error.response?.status === 413) return 'The reverse proxy rejected this archive (HTTP 413). MCUI accepts archives up to 4 GiB; raise the proxy upload limit to at least 5 GiB and retry.'
+  return error.response?.data?.error || error.message
+}
 
 export default function CustomDimension({ name, disabled, onBusy }: { name: string; disabled: boolean; onBusy: (busy: boolean) => void }) {
   const path = `/api/server-details/${encodeURIComponent(name)}/dimensions`

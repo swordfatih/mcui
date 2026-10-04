@@ -75,7 +75,7 @@ MCUI uses [itzg/minecraft-bedrock-server](https://github.com/itzg/docker-minecra
 
 ## Import a custom Bedrock dimension
 
-Stop the server, make your own backup, then open **Resources → Add Custom Dimension**. Upload a `.zip`, `.mcworld`, or `.mctemplate` (4 GiB upload and extracted-content limits), review the detected dimension and packs, and click **Import Dimension** after reading the backup warning. **The importer never creates or manages backups.** Configure your reverse proxy's upload limit and timeout for large archives.
+Stop the server, make your own backup, then open **Resources → Add Custom Dimension**. Drop or choose a `.zip`, `.mcworld`, or `.mctemplate` (4 GiB upload and extracted-content limits), review the detected dimension and packs, and click **Import Dimension** after reading the backup warning. **The importer never creates or manages backups.** If a large upload returns HTTP 413, raise the reverse proxy limit. With nginx-proxy, add `client_max_body_size 5g;` to `/etc/nginx/vhost.d/<VIRTUAL_HOST>` and reload the proxy; see its [per-host configuration guide](https://github.com/nginx-proxy/nginx-proxy/blob/main/docs/README.md#per-virtual_host).
 
 The archive must contain one unencrypted Bedrock world (`level.dat` and a complete `db/`) and its unpacked behavior/resource packs. Pack manifests and world pack references identify the packs, regardless of folder names. Source activation order and subpack choices are retained; the required packs are appended to the destination stack. Existing pack UUIDs are rejected. Archives with unrelated/inactive packs must be cleaned up before importing.
 
