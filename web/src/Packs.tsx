@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import axios from 'axios'
 import { Link } from 'react-router'
 import CustomDimension from './CustomDimension'
+import ArchiveDropzone from './ArchiveDropzone'
 import MinecraftText, { plainMinecraftText } from './MinecraftText'
 
 export type Pack = { id: string; name: string; uuid: string; version: number[] | string; kind: 'resource' | 'behavior'; active: boolean; order: number; loadState: string; builtIn: boolean; hasIcon: boolean }
@@ -65,7 +66,6 @@ export default function Packs({ name }: { name: string }) {
   const [source, setSource] = useState<'file' | 'url'>('file')
   const [mode, setMode] = useState<'install' | 'update'>('install')
   const [pendingUpdate, setPendingUpdate] = useState<UpdatePreview | null>(null)
-  const [draggingFile, setDraggingFile] = useState(false)
   const [notice, setNotice] = useState('')
   const [updateWarnings, setUpdateWarnings] = useState<string[]>([])
   const [error, setError] = useState('')
@@ -102,7 +102,6 @@ export default function Packs({ name }: { name: string }) {
     const ids = current[pack.kind]
     change({ ...current, [pack.kind]: ids.includes(pack.id) ? ids.filter(id => id !== pack.id) : [...ids, pack.id] })
   }
-  function dropFile(event: DragEvent<HTMLElement>) { event.preventDefault(); setDraggingFile(false); if (event.dataTransfer.files[0]) setFile(event.dataTransfer.files[0]) }
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (mode === 'update') inspectUpdate.mutate(); else upload.mutate() }
   return <section className="packs-page">
     <div className="packs-heading"><p className="kicker">BEDROCK ADD-ONS</p><h2>Resource & behavior packs</h2><p className="muted">Drag active packs to set their order. Handles work with a mouse, touch, or keyboard.</p></div>
@@ -125,7 +124,7 @@ export default function Packs({ name }: { name: string }) {
     </>}
     <CustomDimension name={name} disabled={!!listing.data?.running || !listing.data || dirty || save.isPending || upload.isPending || inspectUpdate.isPending} onBusy={setDimensionBusy} />
     <fieldset className="dimension-pack-controls" disabled={dimensionBusy}><section className="panel pack-section pack-install"><h3>Pack archives</h3><p className="muted">Install new packs or update installed packs from an MCADDON, MCPACK, ZIP, tar.gz, or tgz archive. Updates match each pack by manifest UUID.</p><div className="pack-source-tabs" role="group" aria-label="Pack action"><button type="button" className={mode === 'install' ? 'selected' : ''} onClick={() => { setMode('install'); setPendingUpdate(null) }}>Install new</button><button type="button" className={mode === 'update' ? 'selected' : ''} onClick={() => { setMode('update'); setPendingUpdate(null) }}>Update installed</button></div><div className="pack-source-tabs" role="group" aria-label="Pack source"><button type="button" className={source === 'file' ? 'selected' : ''} onClick={() => { setSource('file'); setPendingUpdate(null) }}>Upload file</button><button type="button" className={source === 'url' ? 'selected' : ''} onClick={() => { setSource('url'); setPendingUpdate(null) }}>Download URL</button></div><form onSubmit={submit}>
-      {source === 'file' ? <label className={`pack-dropzone ${draggingFile ? 'dragging' : ''}`} onDragEnter={event => { event.preventDefault(); setDraggingFile(true) }} onDragOver={event => event.preventDefault()} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDraggingFile(false) }} onDrop={dropFile}><input type="file" accept=".zip,.mcaddon,.mcpack,.tar.gz,.tgz" onChange={event => setFile(event.target.files?.[0] || null)} /><span className="pack-upload-icon" aria-hidden="true">↑</span><strong>{file ? file.name : 'Drop an archive here'}</strong><small>{file ? 'Click to choose a different file' : 'or click to choose a file · ZIP, MCADDON, MCPACK, tar.gz, tgz'}</small></label>
+      {source === 'file' ? <ArchiveDropzone file={file} accept=".zip,.mcaddon,.mcpack,.tar.gz,.tgz" formats="ZIP, MCADDON, MCPACK, tar.gz, tgz" onFile={setFile} />
         : <label className="pack-url-label">Direct download link<input type="url" required placeholder="https://example.com/addon.mcaddon" value={url} onChange={event => setURL(event.target.value)} /><small>Public HTTPS links only. The archive is removed after processing.</small></label>}
       {mode === 'update' && <small>Stop the server first. Each incoming pack must have the same UUID and a higher version than one installed pack. MCUI reapplies disabled files recorded in its `.mcui` asset index by exact path; renamed files need a new selection. Review the matched paths and warnings before updating.</small>}
       <button className="primary" disabled={upload.isPending || inspectUpdate.isPending || (mode === 'update' && listing.data?.running) || (source === 'file' ? !file : !url)}>{inspectUpdate.isPending ? 'Reviewing…' : mode === 'update' ? 'Review update' : upload.isPending ? 'Installing…' : 'Install packs'}</button>

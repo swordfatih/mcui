@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import MinecraftText from './MinecraftText'
+import ArchiveDropzone from './ArchiveDropzone'
 
 type InstalledDimension = { name: string; id: number; revision: string; state: string; packs: { name: string; kind: string; uuid: string }[] }
 type Status = {
@@ -72,7 +73,7 @@ export default function CustomDimension({ name, disabled, onBusy }: { name: stri
       {(state === 'ready' || !busy) && <p className="dimension-warning"><strong>Back up your world before continuing.</strong> {removing ? 'This permanently deletes the dimension, its builds, entities, and its behavior/resource packs. Move all players and their spawn points out first. Pack content used elsewhere will become unavailable.' : 'This imports a custom dimension and its required packs.'} A failed operation could damage your world. MCUI will not create a backup.</p>}
       {error && <p className="error" role="alert">{error}</p>}
       {status.isError && <p className="error" role="alert">{errorMessage(status.error)}</p>}
-      {!busy && !removing && <label>World archive<input type="file" accept=".zip,.mcworld,.mctemplate" disabled={pending} onChange={event => { setFile(event.target.files?.[0] || null); setError('') }} /><small>ZIP, MCWORLD, or MCTEMPLATE · up to 4 GiB</small></label>}
+      {!busy && !removing && <div className="dimension-archive-field"><strong>World archive</strong><ArchiveDropzone file={file} accept=".zip,.mcworld,.mctemplate" formats="ZIP, MCWORLD, MCTEMPLATE · up to 4 GiB" disabled={pending} onFile={selectedFile => { setFile(selectedFile); setError('') }} /></div>}
       {removing && <ul>{removing.packs.map(pack => <li key={pack.uuid}><MinecraftText value={pack.name} /> · {pack.kind}</li>)}</ul>}
       {state === 'ready' && <>
         <label>Custom dimension<select value={selected} onChange={event => setSelected(event.target.value)} disabled={pending}><option value="">Choose a dimension</option>{status.data?.dimensions?.map(dimension => <option key={dimension.name} value={dimension.name}>{dimension.name} · {dimension.chunks.toLocaleString()} chunks</option>)}</select></label>
