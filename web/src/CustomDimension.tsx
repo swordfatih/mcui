@@ -28,7 +28,7 @@ export default function CustomDimension({ name, disabled, onBusy }: { name: stri
   const [error, setError] = useState('')
   const [uploadPercent, setUploadPercent] = useState(0)
   const dialog = useRef<HTMLDialogElement>(null)
-  const completedID = useRef('')
+  const completingImportID = useRef('')
   const status = useQuery({ queryKey: key, queryFn: async () => (await axios.get<Status>(path)).data, refetchInterval: 2000 })
   const state = status.data?.state
   const busy = ['analyzing', 'ready', 'importing', 'removing'].includes(state || '')
@@ -44,7 +44,7 @@ export default function CustomDimension({ name, disabled, onBusy }: { name: stri
   })
   const apply = useMutation({
     mutationFn: async () => (await axios.post<Status>(path, { id: status.data?.id, dimension: selected, backupAcknowledged: true })).data,
-    onSuccess: data => { qc.setQueryData(key, data); setError('') }, onError: err => setError(errorMessage(err)),
+    onSuccess: data => { qc.setQueryData(key, data); setError(''); completingImportID.current = data.state === 'importing' ? data.id || '' : '' }, onError: err => setError(errorMessage(err)),
   })
   const cancel = useMutation({
     mutationFn: async () => (await axios.delete<Status>(path, { params: { id: status.data?.id } })).data,
@@ -58,8 +58,9 @@ export default function CustomDimension({ name, disabled, onBusy }: { name: stri
   useEffect(() => { onBusy(busy || upload.isPending) }, [busy, upload.isPending, onBusy])
   useEffect(() => {
     if (state === 'ready' && status.data?.dimensions?.length === 1) setSelected(status.data.dimensions[0].name)
-    if (state === 'complete' && status.data?.id !== completedID.current) {
-      completedID.current = status.data?.id || ''
+    if (state === 'complete' && status.data?.id && status.data.id === completingImportID.current) {
+      completingImportID.current = ''
+      setOpen(false)
       void qc.invalidateQueries({ queryKey: ['packs', encodeURIComponent(name)] })
     }
   }, [state, status.data, qc, name])
