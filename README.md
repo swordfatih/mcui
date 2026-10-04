@@ -73,6 +73,26 @@ Each Google Drive archive contains persistent user files in `data/`; the Compose
 
 MCUI uses [itzg/minecraft-bedrock-server](https://github.com/itzg/docker-minecraft-bedrock-server) for Bedrock and [itzg/minecraft-server](https://github.com/itzg/docker-minecraft-server) for Java. Both images mount the server's `data/` at `/data`.
 
+## Import a custom Bedrock dimension
+
+Stop the server, make your own backup, then open **Resources → Add Custom Dimension**. Upload a `.zip`, `.mcworld`, or `.mctemplate` (4 GiB upload and extracted-content limits), review the detected dimension and packs, and click **Import Dimension** after reading the backup warning. **The importer never creates or manages backups.** Configure your reverse proxy's upload limit and timeout for large archives.
+
+The archive must contain one unencrypted Bedrock world (`level.dat` and a complete `db/`) and its unpacked behavior/resource packs. Pack manifests and world pack references identify the packs, regardless of folder names. Source activation order and subpack choices are retained; the required packs are appended to the destination stack. Existing pack UUIDs are rejected. Archives with unrelated/inactive packs must be cleaned up before importing.
+
+The Python worker uses Amulet Core's Bedrock metadata reader and Amulet-LevelDB for native record transfer. It copies only the selected custom dimension's chunks, linked entities, per-dimension record, and referenced chunk metadata/custom biome mappings. Existing dimensions, players, global script state, and `level.dat` are not imported or rewritten. Shared metadata tables gain the required entries while retaining previous entries. Numeric dimension, entity, biome, and metadata conflicts fail validation rather than remapping or replacing existing data. Legacy entity storage and unsupported layouts are rejected. The server version and enabled experiments must already support the incoming packs.
+
+Imports run in the background with progress. MCUI blocks server starts, pack/file edits, resets, and backup capture during review/import. Cancel a reviewed upload to release the server; unused reviews expire after 30 minutes. Temporary upload/plan files are removed after processing. Import status is kept in memory; do not restart MCUI during an import. An interruption or disk/write failure can leave a partial import: keep the Minecraft server stopped and restore your own backup before retrying.
+
+The Docker image includes the Python worker. For a native development run, install Python 3.12 with venv/development headers and a C/C++ compiler, then:
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r scripts/dimension-requirements.txt
+export MCUI_DIMENSION_PYTHON="$PWD/.venv/bin/python"
+# Run MCUI from the repository root, or set MCUI_DIMENSION_SCRIPT to the script's absolute path.
+.venv/bin/python -m unittest discover -s scripts -p 'test_import_dimension.py'
+```
+
 ## API contract
 
 JSON requests and responses:
@@ -93,6 +113,9 @@ JSON requests and responses:
 | `GET` | `/api/server-details/{name}/storage` | Size of the container's `/data` folder |
 | `GET`, `PUT` | `/api/server-details/{name}/settings` | Read or edit image and environment variables |
 | `GET`, `PUT` | `/api/server-details/{name}/compose` | Read or edit validated Compose YAML |
+| `GET` | `/api/server-details/{name}/dimensions` | Current dimension import status/progress |
+| `POST` | `/api/server-details/{name}/dimensions` | Multipart `file` to review an archive; JSON `{id, dimension, backupAcknowledged: true}` to import |
+| `DELETE` | `/api/server-details/{name}/dimensions?id=…` | Cancel a ready import and remove staged files |
 | `GET` | `/api/server-reset/{name}` | Review files kept and deleted, with a revision token |
 | `POST` | `/api/server-reset/{name}` | Reset stopped server data with `{confirm, revision}` |
 

@@ -386,6 +386,9 @@ func (a *API) serverFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.rejectDimensionMutation(w, name) {
+		return
+	}
 	if a.backup != nil && a.backup.capturing(name) {
 		bad(w, 409, "Server is being captured for backup")
 		return

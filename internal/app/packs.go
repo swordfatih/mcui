@@ -33,6 +33,10 @@ type packManifest struct {
 	Modules []struct {
 		Type string `json:"type"`
 	} `json:"modules"`
+	Dependencies []struct {
+		UUID    string          `json:"uuid"`
+		Version json.RawMessage `json:"version"`
+	} `json:"dependencies"`
 	Subpacks []struct {
 		FolderName string `json:"folder_name"`
 		Name       string `json:"name"`
@@ -389,6 +393,9 @@ func (a *API) packsHandler(w http.ResponseWriter, r *http.Request, name string) 
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.rejectDimensionMutation(w, name) {
+		return
+	}
 	if a.backup != nil && a.backup.capturing(name) {
 		bad(w, 409, "Server is being captured for backup")
 		return

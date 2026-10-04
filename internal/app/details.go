@@ -118,6 +118,8 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch action {
+	case "dimensions":
+		a.dimensionsHandler(w, r, name)
 	case "packs":
 		a.packsHandler(w, r, name)
 	case "resources", "storage":
@@ -200,6 +202,9 @@ func (a *API) serverDetails(w http.ResponseWriter, r *http.Request) {
 		}
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		if r.Method == http.MethodPut && a.rejectDimensionMutation(w, name) {
+			return
+		}
 		if r.Method == http.MethodPut && a.backup != nil && a.backup.capturing(name) {
 			bad(w, 409, "Server is being captured for backup")
 			return

@@ -293,6 +293,9 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		if a.rejectDimensionMutation(w, name) {
+			return
+		}
 	}
 	data, world, err := a.packPaths(name)
 	if err != nil {

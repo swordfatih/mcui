@@ -44,12 +44,14 @@ type CreateRequest struct {
 	backupFile string
 }
 type API struct {
-	profileMu sync.RWMutex
-	Root      string
-	mu        sync.Mutex
-	backup    *BackupManager
-	push      *PushManager
-	logs      *LogWatch
+	dimensionMu sync.Mutex
+	dimensions  map[string]*dimensionJob
+	profileMu   sync.RWMutex
+	Root        string
+	mu          sync.Mutex
+	backup      *BackupManager
+	push        *PushManager
+	logs        *LogWatch
 }
 
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -333,6 +335,9 @@ func (a *API) action(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.rejectDimensionMutation(w, parts[0]) {
+		return
+	}
 	if a.backup.capturing(parts[0]) {
 		bad(w, 409, "Server is being captured for backup")
 		return
@@ -640,7 +645,7 @@ func extract(path, root string) error {
 		}
 		return closeErr
 	}
-	if strings.HasSuffix(strings.ToLower(path), ".zip") || strings.HasSuffix(strings.ToLower(path), ".mcaddon") || strings.HasSuffix(strings.ToLower(path), ".mcpack") {
+	if strings.HasSuffix(strings.ToLower(path), ".zip") || strings.HasSuffix(strings.ToLower(path), ".mcaddon") || strings.HasSuffix(strings.ToLower(path), ".mcpack") || strings.HasSuffix(strings.ToLower(path), ".mcworld") || strings.HasSuffix(strings.ToLower(path), ".mctemplate") {
 		z, err := zip.OpenReader(path)
 		if err != nil {
 			return err

@@ -5,6 +5,7 @@ import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalList
 import { CSS } from '@dnd-kit/utilities'
 import axios from 'axios'
 import { Link } from 'react-router'
+import CustomDimension from './CustomDimension'
 import MinecraftText, { plainMinecraftText } from './MinecraftText'
 
 export type Pack = { id: string; name: string; uuid: string; version: number[] | string; kind: 'resource' | 'behavior'; active: boolean; order: number; loadState: string; builtIn: boolean; hasIcon: boolean }
@@ -56,6 +57,7 @@ function VersionedPackList({ server, packs, running, activeIDs, onToggle }: { se
 export default function Packs({ name }: { name: string }) {
   const key = encodeURIComponent(name)
   const qc = useQueryClient()
+  const [dimensionBusy, setDimensionBusy] = useState(false)
   const [order, setOrder] = useState<Order | null>(null)
   const [touched, setTouched] = useState(false)
   const [file, setFile] = useState<File | null>(null)
@@ -85,7 +87,7 @@ export default function Packs({ name }: { name: string }) {
   const saved = (kind: Pack['kind']) => listing.data?.packs.filter(p => p.kind === kind && p.active).sort((a, b) => a.order - b.order).map(p => p.id) || []
   const dirty = (['resource', 'behavior'] as const).some(kind => JSON.stringify(current[kind]) !== JSON.stringify(saved(kind)))
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))
-  function change(next: Order) { setTouched(true); setOrder(next); setNotice('') }
+  function change(next: Order) { if (dimensionBusy) return; setTouched(true); setOrder(next); setNotice('') }
   function reorder(kind: Pack['kind'], event: DragEndEvent) {
     const { active, over } = event
     if (!over || active.id === over.id) return
@@ -119,14 +121,15 @@ export default function Packs({ name }: { name: string }) {
           {builtIn.length > 0 && <details className="pack-disclosure"><summary>Bedrock-provided packs <span>{builtIn.length}</span></summary><p className="muted">{kind === 'resource' ? 'Vanilla, chemistry, and editor packs' : 'Vanilla, chemistry, editor, experimental, and server library packs'} supplied with Bedrock.</p><VersionedPackList server={name} packs={builtIn} running={listing.data!.running} activeIDs={current[kind]} /></details>}
         </section>
       })}
-      <div className="pack-save-row"><button className="primary" type="button" disabled={save.isPending || !dirty} onClick={() => save.mutate(current)}>{save.isPending ? 'Saving…' : 'Save changes'}</button><p role="status">{dirty ? 'Unsaved changes. ' : ''}Saving writes activation and order to the world’s pack JSON files. It does not restart the server; restart it to apply changes.</p></div>
+      <div className="pack-save-row"><button className="primary" type="button" disabled={dimensionBusy || save.isPending || !dirty} onClick={() => save.mutate(current)}>{save.isPending ? 'Saving…' : 'Save changes'}</button><p role="status">{dirty ? 'Unsaved changes. ' : ''}Saving writes activation and order to the world’s pack JSON files. It does not restart the server; restart it to apply changes.</p></div>
     </>}
-    <section className="panel pack-section pack-install"><h3>Pack archives</h3><p className="muted">Install new packs or update installed packs from an MCADDON, MCPACK, ZIP, tar.gz, or tgz archive. Updates match each pack by manifest UUID.</p><div className="pack-source-tabs" role="group" aria-label="Pack action"><button type="button" className={mode === 'install' ? 'selected' : ''} onClick={() => { setMode('install'); setPendingUpdate(null) }}>Install new</button><button type="button" className={mode === 'update' ? 'selected' : ''} onClick={() => { setMode('update'); setPendingUpdate(null) }}>Update installed</button></div><div className="pack-source-tabs" role="group" aria-label="Pack source"><button type="button" className={source === 'file' ? 'selected' : ''} onClick={() => { setSource('file'); setPendingUpdate(null) }}>Upload file</button><button type="button" className={source === 'url' ? 'selected' : ''} onClick={() => { setSource('url'); setPendingUpdate(null) }}>Download URL</button></div><form onSubmit={submit}>
+    <CustomDimension name={name} disabled={!!listing.data?.running || !listing.data || dirty || save.isPending || upload.isPending || inspectUpdate.isPending} onBusy={setDimensionBusy} />
+    <fieldset className="dimension-pack-controls" disabled={dimensionBusy}><section className="panel pack-section pack-install"><h3>Pack archives</h3><p className="muted">Install new packs or update installed packs from an MCADDON, MCPACK, ZIP, tar.gz, or tgz archive. Updates match each pack by manifest UUID.</p><div className="pack-source-tabs" role="group" aria-label="Pack action"><button type="button" className={mode === 'install' ? 'selected' : ''} onClick={() => { setMode('install'); setPendingUpdate(null) }}>Install new</button><button type="button" className={mode === 'update' ? 'selected' : ''} onClick={() => { setMode('update'); setPendingUpdate(null) }}>Update installed</button></div><div className="pack-source-tabs" role="group" aria-label="Pack source"><button type="button" className={source === 'file' ? 'selected' : ''} onClick={() => { setSource('file'); setPendingUpdate(null) }}>Upload file</button><button type="button" className={source === 'url' ? 'selected' : ''} onClick={() => { setSource('url'); setPendingUpdate(null) }}>Download URL</button></div><form onSubmit={submit}>
       {source === 'file' ? <label className={`pack-dropzone ${draggingFile ? 'dragging' : ''}`} onDragEnter={event => { event.preventDefault(); setDraggingFile(true) }} onDragOver={event => event.preventDefault()} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDraggingFile(false) }} onDrop={dropFile}><input type="file" accept=".zip,.mcaddon,.mcpack,.tar.gz,.tgz" onChange={event => setFile(event.target.files?.[0] || null)} /><span className="pack-upload-icon" aria-hidden="true">↑</span><strong>{file ? file.name : 'Drop an archive here'}</strong><small>{file ? 'Click to choose a different file' : 'or click to choose a file · ZIP, MCADDON, MCPACK, tar.gz, tgz'}</small></label>
         : <label className="pack-url-label">Direct download link<input type="url" required placeholder="https://example.com/addon.mcaddon" value={url} onChange={event => setURL(event.target.value)} /><small>Public HTTPS links only. The archive is removed after processing.</small></label>}
       {mode === 'update' && <small>Stop the server first. Each incoming pack must have the same UUID and a higher version than one installed pack. MCUI reapplies disabled files recorded in its `.mcui` asset index by exact path; renamed files need a new selection. Review the matched paths and warnings before updating.</small>}
       <button className="primary" disabled={upload.isPending || inspectUpdate.isPending || (mode === 'update' && listing.data?.running) || (source === 'file' ? !file : !url)}>{inspectUpdate.isPending ? 'Reviewing…' : mode === 'update' ? 'Review update' : upload.isPending ? 'Installing…' : 'Install packs'}</button>
-    </form></section>
+    </form></section></fieldset>
     {pendingUpdate && <div className="files-dialog-backdrop" role="presentation"><section className="files-dialog panel" role="dialog" aria-modal="true" aria-label="Review pack update"><h3>Update {pendingUpdate.updates.length} pack{pendingUpdate.updates.length === 1 ? '' : 's'}?</h3><p>The installed folders and world activation order stay in place. MCUI reapplies disabled asset paths from `.mcui` when those same paths exist in the new pack.</p><ul>{pendingUpdate.updates.map(item => <li key={`${item.kind}-${item.folder}`}><strong><MinecraftText value={item.name} /></strong> ({item.kind}, folder <code>{item.folder}</code>) · {item.from} → {item.to} · {item.disabled === 0 ? 'No .mcui disabled assets found' : `${item.disabled - item.missing} of ${item.disabled} disabled asset paths found in new pack`}{item.missing > 0 ? ` · ${item.missing} absent in new version` : ''}</li>)}</ul>{pendingUpdate.warnings.map((warning, index) => <small key={index}>Review: {warning}</small>)}<div className="files-dialog-actions"><button type="button" className="secondary-action" onClick={() => setPendingUpdate(null)}>Cancel</button><button type="button" className="primary" disabled={upload.isPending} onClick={() => upload.mutate()}>{upload.isPending ? 'Updating…' : 'Update packs'}</button></div></section></div>}
   </section>
 }

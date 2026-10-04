@@ -6,3 +6,5 @@ servers/*/
 web/tsconfig.tsbuildinfo
 backup/
 go1.26.2.linux-amd64.tar.gz
+__pycache__/
+.venv/

@@ -110,6 +110,9 @@ func (a *API) serverPack(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		if a.rejectDimensionMutation(w, name) {
+			return
+		}
 	}
 	listing, err := a.listPacks(name)
 	if err != nil {

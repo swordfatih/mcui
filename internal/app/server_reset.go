@@ -53,6 +53,9 @@ func (a *API) serverReset(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.rejectDimensionMutation(w, name) {
+		return
+	}
 	server, _, err := a.minecraftService(name)
 	if err != nil {
 		bad(w, 404, "Server not found")

@@ -1184,3 +1184,12 @@ footer span {
 .notification-inline .notification-message { left: 0; right: auto; top: calc(100% + 8px); }
 
 .brand-icon img, .login-mark img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+
+.dimension-pack-controls{border:0;padding:0;margin:0;min-width:0}
+.dimension-dialog{color:inherit;max-height:85vh;overflow:auto}
+.dimension-dialog:not([open]){display:none}
+.dimension-dialog::backdrop{background:rgba(0,0,0,.65)}
+.dimension-dialog label{display:grid;gap:.5rem;margin:1rem 0}
+.dimension-dialog progress{width:100%}
+.dimension-warning{padding:1rem;border:1px solid #ad8544;border-radius:8px;background:rgba(173,133,68,.12)}
+.dimension-import .pack-section-heading{flex-wrap:wrap;gap:1rem}

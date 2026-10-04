@@ -216,6 +216,9 @@ func (b *BackupManager) setState(name string, s BackupState) {
 func (b *BackupManager) start(name string) error {
 	b.api.mu.Lock()
 	defer b.api.mu.Unlock()
+	if b.api.dimensionBusy(name) {
+		return errors.New("A custom dimension import is in progress")
+	}
 	if _, err := b.api.readServer(name); err != nil {
 		return errors.New("Server not found")
 	}
