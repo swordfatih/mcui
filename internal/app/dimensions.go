@@ -425,19 +425,22 @@ type dimensionWorkerResult struct {
 }
 
 func (a *API) runDimensionWorker(job *dimensionJob, mode, dimension string, extra ...string) (dimensionWorkerResult, error) {
-	python := os.Getenv("MCUI_DIMENSION_PYTHON")
-	if python == "" {
-		python = "python3"
-	}
-	script := os.Getenv("MCUI_DIMENSION_SCRIPT")
-	if script == "" {
-		script = "scripts/import_dimension.py"
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
-	args := append([]string{"-u", script, mode, "--source", job.source, "--target", job.world, "--dimension", dimension}, extra...)
-	cmd := exec.CommandContext(ctx, python, args...)
-	// Libraries may log during import; the worker redirects these to stderr.
+	workerArgs := []string{mode, "--target", job.world}
+	if job.source != "" {
+		workerArgs = append(workerArgs, "--source", job.source)
+	}
+	if dimension != "" {
+		workerArgs = append(workerArgs, "--dimension", dimension)
+	}
+	workerArgs = append(workerArgs, extra...)
+	var cmd *exec.Cmd
+	if worker := os.Getenv("MCUI_DIMENSION_WORKER"); worker != "" {
+		cmd = exec.CommandContext(ctx, worker, workerArgs...)
+	} else {
+		cmd = exec.CommandContext(ctx, "go", append([]string{"run", "./cmd/dimension-worker"}, workerArgs...)...)
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return dimensionWorkerResult{}, err
@@ -449,7 +452,7 @@ func (a *API) runDimensionWorker(job *dimensionJob, mode, dimension string, extr
 	defer logFile.Close()
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
-		return dimensionWorkerResult{}, fmt.Errorf("Cannot start the Amulet worker: %w", err)
+		return dimensionWorkerResult{}, fmt.Errorf("Cannot start the dimension worker: %w", err)
 	}
 	var result dimensionWorkerResult
 	var workerError string
@@ -482,7 +485,7 @@ func (a *API) runDimensionWorker(job *dimensionJob, mode, dimension string, extr
 		return result, errors.New(workerError)
 	}
 	if waitErr != nil || scanErr != nil || result.Type != "result" {
-		return result, errors.New("Amulet worker failed or timed out; verify the Python dependencies and archive format")
+		return result, errors.New("Dimension worker failed or timed out; verify the world database and archive format")
 	}
 	return result, nil
 }

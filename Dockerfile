@@ -14,23 +14,18 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 go build -o /mcui ./cmd/mcui
-
-FROM python:3.12-slim-bookworm AS dimension-worker
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential zlib1g-dev cmake git && rm -rf /var/lib/apt/lists/*
-COPY scripts/dimension-requirements.txt /tmp/requirements.txt
-RUN python -m venv /opt/amulet && /opt/amulet/bin/pip install --no-cache-dir -r /tmp/requirements.txt
+RUN CGO_ENABLED=0 go build -o /dimension-worker ./cmd/dimension-worker
 
 FROM docker:28-cli AS docker-cli
-FROM python:3.12-slim-bookworm AS runner
+FROM debian:bookworm-slim AS runner
 RUN apt-get update && apt-get install -y --no-install-recommends rclone ca-certificates libstdc++6 && rm -rf /var/lib/apt/lists/*
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
-COPY --from=dimension-worker /opt/amulet /opt/amulet
+COPY --from=backend /dimension-worker /app/dimension-worker
 WORKDIR /app
 COPY --from=backend /mcui /app/mcui
 COPY --from=web /src/web/dist /app/web/dist
-COPY scripts/import_dimension.py /app/scripts/import_dimension.py
-ENV MCUI_DIMENSION_PYTHON=/opt/amulet/bin/python
+ENV MCUI_DIMENSION_WORKER=/app/dimension-worker
 ENV MCUI_ADDR=0.0.0.0:8080 MCUI_SERVERS_DIR=/servers
 EXPOSE 8080
 CMD ["/app/mcui"]

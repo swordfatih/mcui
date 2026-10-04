@@ -80,12 +80,11 @@ func waitDimension(t *testing.T, a *API, state string) dimensionStatus {
 func fakeDimensionWorker(t *testing.T) {
 	t.Helper()
 	script := filepath.Join(t.TempDir(), "worker.sh")
-	// The Go/worker protocol is tested here; Python tests exercise real LevelDBs.
+	// The worker protocol is tested here; the dimension package owns LevelDB access.
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"type\":\"result\",\"dimensions\":[{\"name\":\"spark:aether\",\"id\":1000,\"chunks\":3}]}'\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("MCUI_DIMENSION_PYTHON", "/bin/sh")
-	t.Setenv("MCUI_DIMENSION_SCRIPT", script)
+	t.Setenv("MCUI_DIMENSION_WORKER", script)
 }
 func TestDimensionImportReviewWarningAndPackActivation(t *testing.T) {
 	a, _, _, world := setupPackUpdateServer(t)

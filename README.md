@@ -79,20 +79,16 @@ Stop the server, make your own backup, then open **Resources → Add Custom Dime
 
 The archive must contain one unencrypted Bedrock world (`level.dat` and a complete `db/`) and its unpacked behavior/resource packs. Pack manifests and world pack references identify the packs, regardless of folder names. Source activation order and subpack choices are retained; the required packs are appended to the destination stack. Existing pack UUIDs are rejected. Archives with unrelated/inactive packs must be cleaned up before importing.
 
-The Python worker uses Amulet Core's Bedrock metadata reader and Amulet-LevelDB for native record transfer. It copies only the selected custom dimension's chunks, linked entities, per-dimension record, and referenced chunk metadata/custom biome mappings. Existing dimensions, players, global script state, and `level.dat` are not imported or rewritten. Shared metadata tables gain the required entries while retaining previous entries. Numeric dimension, entity, biome, and metadata conflicts fail validation rather than remapping or replacing existing data. Legacy entity storage and unsupported layouts are rejected. The server version and enabled experiments must already support the incoming packs.
+The Go dimension worker reads Bedrock's LevelDB records and little-endian NBT directly. It copies only the selected custom dimension's chunks, linked entities, per-dimension record, and referenced chunk metadata/custom biome mappings. Existing dimensions, players, global script state, and `level.dat` are not imported or rewritten. Shared metadata tables gain the required entries while retaining previous entries. Numeric dimension, entity, biome, and metadata conflicts fail validation rather than remapping or replacing existing data. Legacy entity storage and unsupported layouts are rejected. The server version and enabled experiments must already support the incoming packs.
 
-Imports run in the background with progress. MCUI blocks server starts, pack/file edits, resets, and backup capture during review/import. Cancel a reviewed upload to release the server; unused reviews expire after 30 minutes. Temporary upload/plan files are removed after processing. Import status is kept in memory; do not restart MCUI during an import. An interruption or disk/write failure can leave a partial import: keep the Minecraft server stopped and restore your own backup before retrying.
+Imports run in the background with progress. MCUI blocks server starts, pack/file edits, resets, and backup capture during review/import. Cancel a reviewed upload to release the server; unused reviews expire after 30 minutes. Temporary upload and worker files are removed after processing. Import status is kept in memory; do not restart MCUI during an import. An interruption or disk/write failure can leave a partial import: keep the Minecraft server stopped and restore your own backup before retrying.
 
 **Removing a dimension:** imports now save their dimension ID and BP/RP ownership under `servers/<server>/.mcui/dimensions/`. In Resources, choose **Remove dimension + packs** and confirm the backup warning. Stop the server and move players and their spawn points out first. Removal deletes that dimension's saved chunks (including newly explored chunks), linked entities, registration, owned packs, pack-stack references, and MCUI pack asset archives. Other dimensions and players are preserved. Shared biome mappings are retained. Packs owned by a dimension cannot be deleted individually; dependent packs must be removed first. Older imports without ownership records are not automatically associated with packs. Keep `.mcui` with the server when moving or restoring it. Interrupted removals retain ownership so they can be retried.
 
-The Docker image includes the Python worker. For a native development run, install Python 3.12 with venv/development headers, a C/C++ compiler, zlib development files, CMake, and Git, then:
+The Docker image includes the Go worker. For a native development run, build with Go from the repository root:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -r scripts/dimension-requirements.txt
-export MCUI_DIMENSION_PYTHON="$PWD/.venv/bin/python"
-# Run MCUI from the repository root, or set MCUI_DIMENSION_SCRIPT to the script's absolute path.
-.venv/bin/python -m unittest discover -s scripts -p 'test_import_dimension.py'
+go build ./cmd/mcui ./cmd/dimension-worker
 ```
 
 ## API contract

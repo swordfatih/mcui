@@ -1,3 +1,0 @@
-amulet-core==1.9.41
-amulet-nbt==2.1.8
-amulet-leveldb==1.0.7
