@@ -235,6 +235,15 @@ func (a *API) serverPack(w http.ResponseWriter, r *http.Request) {
 		bad(w, 409, "Server is being captured for backup")
 		return
 	}
+	owner, ownerErr := a.dimensionPackOwner(name, pack.UUID)
+	if ownerErr != nil {
+		bad(w, 409, ownerErr.Error())
+		return
+	}
+	if owner != "" {
+		bad(w, 409, "This pack belongs to "+owner+"; use Remove dimension + packs in Resources")
+		return
+	}
 	if a.status(r.Context(), name) != "stopped" {
 		bad(w, 409, "Stop the server before deleting a pack")
 		return

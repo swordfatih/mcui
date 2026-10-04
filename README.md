@@ -83,7 +83,9 @@ The Python worker uses Amulet Core's Bedrock metadata reader and Amulet-LevelDB 
 
 Imports run in the background with progress. MCUI blocks server starts, pack/file edits, resets, and backup capture during review/import. Cancel a reviewed upload to release the server; unused reviews expire after 30 minutes. Temporary upload/plan files are removed after processing. Import status is kept in memory; do not restart MCUI during an import. An interruption or disk/write failure can leave a partial import: keep the Minecraft server stopped and restore your own backup before retrying.
 
-The Docker image includes the Python worker. For a native development run, install Python 3.12 with venv/development headers and a C/C++ compiler, then:
+**Removing a dimension:** imports now save their dimension ID and BP/RP ownership under `servers/<server>/.mcui/dimensions/`. In Resources, choose **Remove dimension + packs** and confirm the backup warning. Stop the server and move players and their spawn points out first. Removal deletes that dimension's saved chunks (including newly explored chunks), linked entities, registration, owned packs, pack-stack references, and MCUI pack asset archives. Other dimensions and players are preserved. Shared biome mappings are retained. Packs owned by a dimension cannot be deleted individually; dependent packs must be removed first. Older imports without ownership records are not automatically associated with packs. Keep `.mcui` with the server when moving or restoring it. Interrupted removals retain ownership so they can be retried.
+
+The Docker image includes the Python worker. For a native development run, install Python 3.12 with venv/development headers, a C/C++ compiler, zlib development files, CMake, and Git, then:
 
 ```sh
 python3 -m venv .venv
@@ -114,7 +116,7 @@ JSON requests and responses:
 | `GET`, `PUT` | `/api/server-details/{name}/settings` | Read or edit image and environment variables |
 | `GET`, `PUT` | `/api/server-details/{name}/compose` | Read or edit validated Compose YAML |
 | `GET` | `/api/server-details/{name}/dimensions` | Current dimension import status/progress |
-| `POST` | `/api/server-details/{name}/dimensions` | Multipart `file` to review an archive; JSON `{id, dimension, backupAcknowledged: true}` to import |
+| `POST` | `/api/server-details/{name}/dimensions` | Multipart `file` to review an archive; JSON `{id, dimension, backupAcknowledged: true}` to import, or `{action: "remove", dimension, revision, backupAcknowledged: true}` to remove a tracked dimension and its packs |
 | `DELETE` | `/api/server-details/{name}/dimensions?id=…` | Cancel a ready import and remove staged files |
 | `GET` | `/api/server-reset/{name}` | Review files kept and deleted, with a revision token |
 | `POST` | `/api/server-reset/{name}` | Reset stopped server data with `{confirm, revision}` |

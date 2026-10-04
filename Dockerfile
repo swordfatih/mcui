@@ -16,7 +16,7 @@ COPY internal ./internal
 RUN CGO_ENABLED=0 go build -o /mcui ./cmd/mcui
 
 FROM python:3.12-slim-bookworm AS dimension-worker
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential zlib1g-dev cmake git && rm -rf /var/lib/apt/lists/*
 COPY scripts/dimension-requirements.txt /tmp/requirements.txt
 RUN python -m venv /opt/amulet && /opt/amulet/bin/pip install --no-cache-dir -r /tmp/requirements.txt
 

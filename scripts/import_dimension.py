@@ -323,13 +323,123 @@ def prepare(source, target, name, plan):
     return {"name": name, "id": dimension, "chunks": len(chunks)}
 
 
+class RemovalPlan(Plan):
+    def __init__(self, path):
+        self.db = sqlite3.connect(path)
+        self.db.execute("CREATE TABLE changes (key BLOB PRIMARY KEY, value BLOB)")
+
+    def remove(self, key):
+        self.db.execute("INSERT OR IGNORE INTO changes VALUES (?, NULL)", (key,))
+
+    def apply(self, target):
+        self.db.commit()
+        total = self.db.execute("SELECT count(*) FROM changes").fetchone()[0]
+        # Remove dimension data first; registration goes last so retries can
+        # still identify a partially deleted dimension after an interruption.
+        for index, (key,) in enumerate(self.db.execute("SELECT key FROM changes WHERE value IS NULL"), 1):
+            target.delete(key)
+            if index % 1000 == 0:
+                emit("progress", message="Removing custom dimension", completed=index, total=total)
+        for key, value in self.db.execute("SELECT key,value FROM changes WHERE value IS NOT NULL"):
+            if key != DIMENSIONS:
+                target.put(key, value)
+        row = self.db.execute("SELECT value FROM changes WHERE key=?", (DIMENSIONS,)).fetchone()
+        if row:
+            target.put(DIMENSIONS, row[0])
+        emit("progress", message="Dimension removed", completed=total, total=total)
+
+
+def prepare_removal(target, name, expected_id, plan, allow_missing=False):
+    table = dimension_table(target)
+    entries = table.compound["entries"]
+    if expected_id < 1000 or name.startswith("minecraft:") or not re.fullmatch(r"[a-z0-9_]+:[a-z0-9_]+", name):
+        raise ValueError("Only a tracked custom dimension can be removed")
+    if name in entries:
+        if entries[name].py_int != expected_id:
+            raise ValueError("Dimension ID changed; refusing removal")
+    elif not allow_missing:
+        raise ValueError("Tracked dimension is missing from this world")
+    if any(value.py_int == expected_id for key, value in entries.items() if key != name):
+        raise ValueError("Dimension ID is now owned by another dimension")
+    actors, other_actors, hashes, other_hashes, chunks = set(), set(), set(), set(), set()
+    for key in target.keys():
+        dim = chunk_dimension(key)
+        if dim == expected_id:
+            plan.remove(key)
+            chunks.add(key[:8])
+        elif len(key) in (13, 14, 15, 21) and struct.unpack_from("<i", key, 8)[0] == expected_id:
+            raise ValueError("Unsupported chunk record; nothing was removed")
+        if (len(key) == 13 and key[12] == 63) or (len(key) == 9 and key[8] == 63):
+            (hashes if dim == expected_id else other_hashes).add(target.get(key))
+        if key.startswith(b"digp") and len(key) in (12, 16):
+            value = target.get(key)
+            if len(value) % 8:
+                raise ValueError("Invalid entity digest; nothing was removed")
+            ids = {value[i:i+8] for i in range(0, len(value), 8)}
+            if digest_dimension(key) == expected_id:
+                actors.update(ids)
+                plan.remove(key)
+            else:
+                other_actors.update(ids)
+        if key.startswith((b"player_", b"legacy_console_player_", b"~local_player")):
+            player = nbt(target.get(key)).compound
+            if any(getattr(player.get(field), "py_int", None) == expected_id for field in ("DimensionId", "SpawnDimension")):
+                raise ValueError("A player is saved in this dimension or has a spawn point there. Move them and their spawn to another dimension, then stop the server and retry")
+        if key.startswith(b"tickingarea"):
+            area = nbt(target.get(key)).compound
+            if getattr(area.get("Dimension"), "py_int", None) == expected_id:
+                plan.remove(key)
+        if key.startswith((f"VILLAGE_{expected_id}_".encode(), f"chunk_loaded_request_{expected_id}_".encode(), f"poi.{expected_id}.regions.".encode())):
+            plan.remove(key)
+        if key == f"poi.{expected_id}.regions".encode():
+            plan.remove(key)
+    if actors & other_actors:
+        raise ValueError("Entities are shared with another dimension; nothing was removed")
+    for key in target.keys():
+        if not key.startswith(b"actorprefix"):
+            continue
+        actor = nbt(target.get(key)).compound
+        dimension = getattr(actor.get("DimensionId"), "py_int", None)
+        if dimension == expected_id or key[len(b"actorprefix"):] in actors:
+            if key[len(b"actorprefix"):] in other_actors or (dimension is not None and dimension != expected_id):
+                raise ValueError("Entity dimension references conflict; nothing was removed")
+            plan.remove(key)
+    plan.remove(name.encode())
+    raw_metadata = get(target, METADATA)
+    if raw_metadata is not None:
+        metadata = metadata_entries(raw_metadata)
+        removed = hashes - other_hashes
+        kept = {key: value for key, value in metadata.items() if key not in removed}
+        if len(kept) != len(metadata):
+            plan.add(target, METADATA, struct.pack("<I", len(kept)) + b"".join(key + value for key, value in kept.items()), shared=True)
+    # Biome IDs and other world-wide state may be used outside this dimension.
+    # Keep those mappings rather than rewriting any remaining chunk or player.
+    if name in entries:
+        del entries[name]
+    plan.add(target, DIMENSIONS, serialize(table), shared=True)
+    return {"name": name, "id": expected_id, "chunks": len(chunks)}
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("inspect", "check", "apply"))
-    parser.add_argument("--source", required=True)
+    parser.add_argument("mode", choices=("inspect", "check", "apply", "remove-check", "remove"))
+    parser.add_argument("--source", default="")
     parser.add_argument("--target", required=True)
     parser.add_argument("--dimension", default="")
+    parser.add_argument("--dimension-id", type=int, default=0)
+    parser.add_argument("--allow-missing", action="store_true")
     args = parser.parse_args()
+    if args.mode in ("remove-check", "remove"):
+        with open_world(args.target) as target, tempfile.TemporaryDirectory(prefix="mcui-dimension-remove-") as stage:
+            plan = RemovalPlan(str(Path(stage) / "plan.sqlite"))
+            try:
+                result = prepare_removal(target, args.dimension, args.dimension_id, plan, args.allow_missing)
+                if args.mode == "remove":
+                    plan.apply(target)
+                emit("result", dimensions=[result])
+            finally:
+                plan.close()
+        return
     with open_world(args.source) as source:
         if args.mode == "inspect":
             emit("result", dimensions=inspect(source))

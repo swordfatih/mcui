@@ -30,13 +30,14 @@ type dimensionPack struct {
 	ref            packRef
 }
 type dimensionStatus struct {
-	ID         string             `json:"id,omitempty"`
-	State      string             `json:"state"`
-	Message    string             `json:"message,omitempty"`
-	Dimensions []dimensionSummary `json:"dimensions,omitempty"`
-	Packs      []dimensionPack    `json:"packs,omitempty"`
-	Completed  int                `json:"completed,omitempty"`
-	Total      int                `json:"total,omitempty"`
+	Installed  []installedDimension `json:"installed,omitempty"`
+	ID         string               `json:"id,omitempty"`
+	State      string               `json:"state"`
+	Message    string               `json:"message,omitempty"`
+	Dimensions []dimensionSummary   `json:"dimensions,omitempty"`
+	Packs      []dimensionPack      `json:"packs,omitempty"`
+	Completed  int                  `json:"completed,omitempty"`
+	Total      int                  `json:"total,omitempty"`
 }
 type dimensionJob struct {
 	status                     dimensionStatus // protected by dimensionMu
@@ -55,14 +56,14 @@ func (a *API) dimensionState(name string) dimensionStatus {
 }
 func (a *API) dimensionBusy(name string) bool {
 	switch a.dimensionState(name).State {
-	case "uploading", "analyzing", "ready", "importing":
+	case "uploading", "analyzing", "ready", "importing", "removing":
 		return true
 	}
 	return false
 }
 func (a *API) rejectDimensionMutation(w http.ResponseWriter, name string) bool {
 	if a.dimensionBusy(name) {
-		bad(w, 409, "A custom dimension import is in progress; finish or cancel it first")
+		bad(w, 409, "A custom dimension operation is in progress; wait for it to finish or cancel the review")
 		return true
 	}
 	return false
@@ -74,7 +75,12 @@ func (a *API) dimensionProgress(job *dimensionJob, state, message string) {
 }
 func (a *API) dimensionsHandler(w http.ResponseWriter, r *http.Request, name string) {
 	if r.Method == http.MethodGet {
-		respond(w, 200, a.dimensionState(name))
+		state, err := a.dimensionListing(name)
+		if err != nil {
+			bad(w, 500, err.Error())
+			return
+		}
+		respond(w, 200, state)
 		return
 	}
 	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
@@ -102,12 +108,22 @@ func (a *API) dimensionsHandler(w http.ResponseWriter, r *http.Request, name str
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 		r.Body = http.MaxBytesReader(w, r.Body, 4096)
 		var req struct {
+			Action             string `json:"action"`
+			Revision           string `json:"revision"`
 			ID                 string `json:"id"`
 			Dimension          string `json:"dimension"`
 			BackupAcknowledged bool   `json:"backupAcknowledged"`
 		}
 		if json.NewDecoder(r.Body).Decode(&req) != nil || !req.BackupAcknowledged {
-			bad(w, 400, "Acknowledge the backup warning before importing")
+			bad(w, 400, "Acknowledge the backup warning before continuing")
+			return
+		}
+		if req.Action == "remove" {
+			a.startDimensionRemoval(w, r, name, req.Dimension, req.Revision)
+			return
+		}
+		if req.Action != "" {
+			bad(w, 400, "Unknown dimension action")
 			return
 		}
 		a.dimensionMu.Lock()
@@ -408,7 +424,7 @@ type dimensionWorkerResult struct {
 	Total      int                `json:"total"`
 }
 
-func (a *API) runDimensionWorker(job *dimensionJob, mode, dimension string) (dimensionWorkerResult, error) {
+func (a *API) runDimensionWorker(job *dimensionJob, mode, dimension string, extra ...string) (dimensionWorkerResult, error) {
 	python := os.Getenv("MCUI_DIMENSION_PYTHON")
 	if python == "" {
 		python = "python3"
@@ -419,7 +435,8 @@ func (a *API) runDimensionWorker(job *dimensionJob, mode, dimension string) (dim
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, python, "-u", script, mode, "--source", job.source, "--target", job.world, "--dimension", dimension)
+	args := append([]string{"-u", script, mode, "--source", job.source, "--target", job.world, "--dimension", dimension}, extra...)
+	cmd := exec.CommandContext(ctx, python, args...)
 	// Libraries may log during import; the worker redirects these to stderr.
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -501,6 +518,11 @@ func (a *API) applyDimension(name string, job *dimensionJob, dimension string) {
 			return
 		}
 	}
+	record, err := a.recordDimensionImport(name, job, dimension)
+	if err != nil {
+		fail(err)
+		return
+	}
 	installed := []string{}
 	cleanupPacks := func() {
 		for _, path := range installed {
@@ -535,6 +557,11 @@ func (a *API) applyDimension(name string, job *dimensionJob, dimension string) {
 			fail(fmt.Errorf("Dimension copied but pack activation failed: %w. Restore your backup before retrying", err))
 			return
 		}
+	}
+	record.State = "installed"
+	if err := a.writeDimensionRecord(name, record); err != nil {
+		fail(err)
+		return
 	}
 	a.dimensionProgress(job, "complete", "Custom dimension imported and packs activated. Start the server when ready.")
 }

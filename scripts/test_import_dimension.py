@@ -170,6 +170,71 @@ class DimensionImportTests(unittest.TestCase):
         self.assertIn(chunk(1000, 44), self.read_target())
         self.assertEqual(self.target_level, (self.target/'level.dat').read_bytes())
 
+    def removal(self, apply=True):
+        with worker.open_world(self.target) as target:
+            with tempfile.TemporaryDirectory() as stage:
+                plan = worker.RemovalPlan(str(Path(stage) / 'remove.sqlite'))
+                try:
+                    worker.prepare_removal(target, 'spark:aether', 1000, plan)
+                    if apply:
+                        with redirect_stdout(io.StringIO()):
+                            plan.apply(target)
+                finally:
+                    plan.close()
+
+    def test_removal_deletes_grown_dimension_and_preserves_other_world_data(self):
+        self.apply()
+        with worker.open_world(self.target) as target:
+            target.put(b'~local_player', encoded({'DimensionId':IntTag(0),'SpawnDimension':IntTag(0)}))
+            target.put(chunk(1000, 44, 50, 50), b'newly explored chunk')
+            target.put(b'tickingarea-owned', encoded({'Dimension':IntTag(1000)}))
+            target.put(b'tickingarea-existing', encoded({'Dimension':IntTag(0)}))
+        before = self.read_target()
+        self.removal()
+        after = self.read_target()
+        for key, value in before.items():
+            if worker.chunk_dimension(key) == 1000 or worker.digest_dimension(key) == 1000 or key in (b'actorprefix'+self.actor,b'spark:aether',b'tickingarea-owned',worker.DIMENSIONS,worker.METADATA):
+                continue
+            self.assertEqual(value, after[key], key)
+        self.assertFalse(any(worker.chunk_dimension(key) == 1000 for key in after))
+        self.assertNotIn(b'actorprefix'+self.actor,after)
+        self.assertNotIn(b'spark:aether',after)
+        self.assertNotIn(b'tickingarea-owned',after)
+        self.assertEqual(after[worker.DIMENSIONS],self.existing[worker.DIMENSIONS])
+        self.assertEqual(after[worker.METADATA],self.existing[worker.METADATA])
+        self.assertEqual(self.target_level,(self.target/'level.dat').read_bytes())
+
+    def test_removal_blocks_players_and_spawn_points_without_writes(self):
+        self.apply()
+        for field in ('DimensionId','SpawnDimension'):
+            with worker.open_world(self.target) as target:
+                target.put(b'~local_player',encoded({field:IntTag(1000)}))
+            before=self.read_target()
+            with self.assertRaisesRegex(ValueError,'player is saved'):
+                self.removal()
+            self.assertEqual(before,self.read_target())
+
+    def test_removal_refuses_changed_dimension_id(self):
+        self.apply()
+        with worker.open_world(self.target) as target:
+            target.put(worker.DIMENSIONS,table({'spark:aether':1003}))
+        before=self.read_target()
+        with self.assertRaisesRegex(ValueError,'ID changed'):
+            self.removal()
+        self.assertEqual(before,self.read_target())
+
+    def test_removal_cli(self):
+        self.apply()
+        with worker.open_world(self.target) as target:
+            target.put(b'~local_player',encoded({'DimensionId':IntTag(0)}))
+        before=self.read_target()
+        for mode in ('remove-check','remove'):
+            result=subprocess.run([sys.executable,str(Path(__file__).with_name('import_dimension.py')),mode,'--target',str(self.target),'--dimension','spark:aether','--dimension-id','1000'],capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertEqual(json.loads(result.stdout.splitlines()[-1])['type'],'result')
+            if mode=='remove-check':self.assertEqual(before,self.read_target())
+        self.assertNotIn(chunk(1000,44),self.read_target())
+
 
 if __name__=='__main__':
     unittest.main()

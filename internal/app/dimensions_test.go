@@ -215,3 +215,76 @@ func TestDimensionUploadRequiresStoppedServer(t *testing.T) {
 		t.Fatal(value)
 	}
 }
+
+func importTrackedDimension(t *testing.T) (*API, string, installedDimension) {
+	t.Helper()
+	a, _, _, world := setupPackUpdateServer(t)
+	fakeDimensionWorker(t)
+	response := postDimension(t, a, dimensionArchive(t, nil), "world.mctemplate")
+	if response.Code != 202 {
+		t.Fatal(response.Body.String())
+	}
+	state := waitDimension(t, a, "ready")
+	response = httptest.NewRecorder()
+	a.dimensionsHandler(response, httptest.NewRequest("POST", "/dimensions", strings.NewReader(`{"id":"`+state.ID+`","dimension":"spark:aether","backupAcknowledged":true}`)), "server")
+	if response.Code != 202 {
+		t.Fatal(response.Body.String())
+	}
+	waitDimension(t, a, "complete")
+	records, err := a.readDimensionRecords("server")
+	if err != nil || len(records) != 1 {
+		t.Fatalf("missing persisted ownership: %+v %v", records, err)
+	}
+	return a, world, records[0]
+}
+func requestDimensionRemoval(t *testing.T, a *API, record installedDimension) *httptest.ResponseRecorder {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"action": "remove", "dimension": record.Name, "revision": record.Revision, "backupAcknowledged": true})
+	response := httptest.NewRecorder()
+	a.dimensionsHandler(response, httptest.NewRequest("POST", "/dimensions", bytes.NewReader(body)), "server")
+	return response
+}
+func TestDimensionRemovalPersistsOwnershipAndRemovesBothPacks(t *testing.T) {
+	original, world, record := importTrackedDimension(t)
+	a := &API{Root: original.Root} // Metadata, not the old in-memory job, drives removal.
+	response := requestDimensionRemoval(t, a, record)
+	if response.Code != 202 {
+		t.Fatal(response.Body.String())
+	}
+	waitDimension(t, a, "complete")
+	for _, pack := range record.Packs {
+		if _, err := os.Stat(filepath.Join(a.Root, "server", "data", packFolder(pack.Kind), pack.Folder)); !os.IsNotExist(err) {
+			t.Fatal("owned pack still exists")
+		}
+	}
+	for _, kind := range []string{"behavior", "resource"} {
+		refs, err := readPackRefs(filepath.Join(world, packFile(kind)))
+		if err != nil || len(refs) != 1 {
+			t.Fatalf("unrelated refs changed: %+v %v", refs, err)
+		}
+	}
+	records, err := a.readDimensionRecords("server")
+	if err != nil || len(records) != 0 {
+		t.Fatal("ownership not removed", err)
+	}
+	if _, err := os.Stat(filepath.Join(a.Root, "server/data/resource_packs/actions-resource/manifest.json")); err != nil {
+		t.Fatal("unrelated pack removed")
+	}
+}
+func TestDimensionRemovalRejectsStaleReviewAndPackIdentityChange(t *testing.T) {
+	a, _, record := importTrackedDimension(t)
+	stale := record
+	stale.Revision = "stale"
+	if response := requestDimensionRemoval(t, a, stale); response.Code != 409 {
+		t.Fatal("accepted stale removal")
+	}
+	pack := record.Packs[0]
+	path := filepath.Join(a.Root, "server/data", packFolder(pack.Kind), pack.Folder, "manifest.json")
+	os.WriteFile(path, []byte(updateManifest("Replacement", updateBehaviorUUID, "data", `[1,0,0]`)), 0644)
+	if response := requestDimensionRemoval(t, a, record); response.Code != 409 {
+		t.Fatal("accepted changed pack identity")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("removed replacement pack")
+	}
+}
