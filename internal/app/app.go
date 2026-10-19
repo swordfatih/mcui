@@ -484,6 +484,7 @@ func (a *API) createWithContext(ctx context.Context, req CreateRequest) error {
 		compose += fmt.Sprintf("      LEVEL_NAME: %q\n    stdin_open: true\n    tty: true\n", worldName)
 	}
 	compose += fmt.Sprintf("    ports:\n      - \"%d:%d%s\"\n    volumes:\n      - ./data:/data\n    restart: unless-stopped\n    stop_grace_period: 2m\n", req.Port, target, protocol)
+	compose += "    logging:\n      driver: json-file\n      options:\n        max-size: \"10m\"\n        max-file: \"3\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(compose), 0644); err != nil {
 		return err
 	}

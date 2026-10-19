@@ -61,6 +61,8 @@ A valid world has a `level.dat` file. Archives may contain a single enclosing fo
 
 Backup imports accept `.tar.gz` or `.tgz` archives containing a `data/` folder. MCUI copies only persistent user files using the reset and backup policy, so older archives that also contain Compose, built-in packs, or runtime files are filtered. A new Compose file is generated from the chosen edition, name, and port. For a Bedrock backup with one nondefault world folder, MCUI sets `LEVEL_NAME` to that folder. Choose the correct edition when importing. Google Drive file links support `https://drive.google.com/file/d/<id>/...` and `https://drive.google.com/open?id=<id>`; the configured account must be able to read the file. Browser uploads have a 4 GiB request limit. If MCUI is behind a reverse proxy, configure that proxy to permit the intended upload size.
 
+New Java and Bedrock servers use Docker's `json-file` log driver with rotation at 10 MB and three retained files. Existing server Compose files must be updated separately, and their containers recreated for logging changes to take effect.
+
 Each server has this layout:
 
 ```text
