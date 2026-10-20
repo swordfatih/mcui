@@ -116,15 +116,19 @@ func reconcileUpdatedAssets(layerDir, archiveDir, layer string, records []assetR
 					candidates = append(candidates, ref+ext)
 				}
 			}
-			if len(candidates) != 1 {
+			if len(candidates) == 0 {
 				warnings = append(warnings, fmt.Sprintf("%s: texture %s for disabled alias %s could not be resolved uniquely", layer, ref, alias))
 				continue
 			}
-			add[candidates[0]] = true
-			stem := assetTexturePath(candidates[0])
-			for _, suffix := range []string{".texture_set.json", "_mer.png", "_mers.png", "_normal.png"} {
-				if available[stem+suffix] {
-					add[stem+suffix] = true
+			// PNG and TGA files can share a texture path. Disable every format
+			// behind a fully disabled alias instead of leaving an active alternate.
+			for _, candidate := range candidates {
+				add[candidate] = true
+				stem := assetTexturePath(candidate)
+				for _, suffix := range []string{".texture_set.json", "_mer.png", "_mers.png", "_normal.png"} {
+					if available[stem+suffix] {
+						add[stem+suffix] = true
+					}
 				}
 			}
 		}

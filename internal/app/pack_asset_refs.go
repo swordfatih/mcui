@@ -226,7 +226,6 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 								matching = i
 								required[records[i].Path] = true
 								found = true
-								break
 							}
 						}
 						if !found {
@@ -399,5 +398,12 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 			return nil
 		})
 	}
+	materialEdits, materialPatches, materialWarnings, err := textureSetReferenceEdits(layerDir, action, records)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	edits = append(edits, materialEdits...)
+	catalogPatches = append(catalogPatches, materialPatches...)
+	warnings = append(warnings, materialWarnings...)
 	return edits, records, catalogPatches, warnings, nil
 }

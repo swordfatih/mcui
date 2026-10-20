@@ -609,6 +609,12 @@ func (a *API) packsHandler(w http.ResponseWriter, r *http.Request, name string) 
 		bad(w, 400, "Archive has no pack manifest.json")
 		return
 	}
+	for _, path := range candidates {
+		if err := normalizeOptimizedPack(filepath.Dir(path)); err != nil {
+			bad(w, 400, "Could not expand optimized pack: "+err.Error())
+			return
+		}
+	}
 	listing, err := a.listPacks(name)
 	if err != nil {
 		bad(w, 400, err.Error())

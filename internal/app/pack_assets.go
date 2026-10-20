@@ -468,7 +468,38 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 		bad(w, 400, "Invalid asset request")
 		return
 	}
+	optimized, err := isOptimizedPack(packDir)
+	if err != nil {
+		bad(w, 409, err.Error())
+		return
+	}
+	if optimized && change.Action != "repair" {
+		bad(w, 409, "Run Repair disabled texture references before editing this optimized pack")
+		return
+	}
 	if change.Action == "repair" && allowed[change.Layer] && len(change.Paths) == 0 {
+		if optimized {
+			u, stage, changes, err := prepareOptimizedAssetRepair(filepath.Join(a.Root, name), packDir, statePath, filepath.Join(root, "archived-assets", "resource", folder), state)
+			if err != nil {
+				bad(w, 409, err.Error())
+				return
+			}
+			preserve := false
+			defer func() {
+				if !preserve {
+					_ = os.RemoveAll(stage)
+				}
+			}()
+			if !change.Preview {
+				if err := applyPackUpdates(world, stage, []packUpdate{u}); err != nil {
+					preserve = errors.Is(err, errPackRollback)
+					bad(w, 500, err.Error())
+					return
+				}
+			}
+			respond(w, 200, map[string]any{"count": len(changes), "edits": len(changes), "changes": changes, "warnings": u.warnings})
+			return
+		}
 		layerDir, err := assetLayerPath(packDir, change.Layer)
 		if err != nil {
 			bad(w, 409, err.Error())

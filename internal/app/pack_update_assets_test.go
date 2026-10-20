@@ -79,6 +79,9 @@ func TestUpdateAssetsLocalArchive(t *testing.T) {
 	if err := extract(archive, source); err != nil {
 		t.Fatal(err)
 	}
+	if err := normalizeOptimizedPack(source); err != nil {
+		t.Fatal(err)
+	}
 	originalCatalogs := map[string]any{}
 	files, err := contentFiles(source)
 	if err != nil {
