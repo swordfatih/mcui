@@ -51,6 +51,28 @@ func texturePaths(value any) []string {
 	}
 	return nil
 }
+
+// Terrain entries contain metadata strings (for example overlay_color) as well
+// as paths. Only traverse fields that actually contain texture references.
+func terrainTexturePaths(value any) []string {
+	switch v := value.(type) {
+	case string:
+		return []string{v}
+	case []any:
+		var out []string
+		for _, item := range v {
+			out = append(out, terrainTexturePaths(item)...)
+		}
+		return out
+	case map[string]any:
+		var out []string
+		for _, key := range []string{"path", "textures", "variations"} {
+			out = append(out, terrainTexturePaths(v[key])...)
+		}
+		return out
+	}
+	return nil
+}
 func referenceEdits(layerDir string, action string, records []assetRecord, prior ...assetRecord) ([]assetFileEdit, []assetRecord, []assetPatch, []string, error) {
 	byPath := map[string]int{}
 	for i, record := range records {
@@ -95,15 +117,21 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 				return nil, nil, nil, nil, fmt.Errorf("%s: expected an object", rel)
 			}
 			if action == "archive" {
-				removedAliases := map[string]string{}
+				removedAliases := map[string][]string{}
 				for _, record := range append(records, prior...) {
 					if record.Layer != records[0].Layer {
 						continue
 					}
 					for _, patch := range record.Patches {
 						if patch.File == "textures/terrain_texture.json" {
-							removedAliases[patch.Key] = record.Path
+							removedAliases[patch.Key] = append(removedAliases[patch.Key], record.Path)
 						}
+					}
+				}
+				for _, patch := range catalogPatches {
+					if patch.File == "textures/terrain_texture.json" {
+						// Every dependency must be restored before this block override.
+						removedAliases[patch.Key] = append(removedAliases[patch.Key], patch.Requires...)
 					}
 				}
 				for block, raw := range blocks {
@@ -118,9 +146,11 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 					matched, all := false, len(aliases) > 0
 					required := map[string]bool{}
 					for _, alias := range aliases {
-						if path, ok := removedAliases[alias]; ok {
+						if dependencies, ok := removedAliases[alias]; ok {
 							matched = true
-							required[path] = true
+							for _, path := range dependencies {
+								required[path] = true
+							}
 						} else {
 							all = false
 						}
@@ -128,7 +158,7 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 					if !matched {
 						continue
 					}
-					if !all || !strings.HasPrefix(block, "minecraft:") {
+					if !all || (strings.Contains(block, ":") && !strings.HasPrefix(block, "minecraft:")) {
 						warnings = append(warnings, "blocks.json: "+block+" still references a disabled texture alias; review this block")
 						continue
 					}
@@ -181,14 +211,16 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 					if !ok {
 						continue
 					}
-					paths := texturePaths(textureEntry["textures"])
+					paths := terrainTexturePaths(textureEntry["textures"])
 					matching := -1
 					other := false
+					required := map[string]bool{}
 					for _, ref := range paths {
 						found := false
 						for asset, i := range byPath {
 							if assetPathMatches(ref, asset) {
 								matching = i
+								required[records[i].Path] = true
 								found = true
 								break
 							}
@@ -198,11 +230,20 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 						}
 					}
 					if matching >= 0 {
-						if other || len(paths) > 1 {
+						if other {
 							warnings = append(warnings, rel+": shared texture alias "+key+" needs review")
 							continue
 						}
-						records[matching].Patches = append(records[matching].Patches, assetPatch{File: rel, Key: key, Value: raw})
+						if len(required) == 1 {
+							records[matching].Patches = append(records[matching].Patches, assetPatch{File: rel, Key: key, Value: raw})
+						} else {
+							requires := make([]string, 0, len(required))
+							for path := range required {
+								requires = append(requires, path)
+							}
+							sort.Strings(requires)
+							catalogPatches = append(catalogPatches, assetPatch{File: rel, Key: key, Layer: records[matching].Layer, Value: raw, Requires: requires})
+						}
 						delete(textureData, key)
 						changed = true
 					}
@@ -279,8 +320,11 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 						}
 					}
 				}
+				// A catalog can legitimately contain duplicate entries. Detect
+				// conflicts against the live list, not patches restored in this batch.
+				existingList := append([]json.RawMessage(nil), list...)
 				for _, patch := range patches {
-					for _, existing := range list {
+					for _, existing := range existingList {
 						if string(existing) == string(patch.Value) {
 							return nil, nil, nil, nil, fmt.Errorf("%s: entry already exists", rel)
 						}

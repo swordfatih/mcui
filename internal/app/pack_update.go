@@ -20,6 +20,8 @@ type packUpdateSummary struct {
 	To       string `json:"to"`
 	Disabled int    `json:"disabled"`
 	Missing  int    `json:"missing"`
+	Remapped int    `json:"remapped"`
+	Added    int    `json:"added"`
 }
 
 type packUpdatePreview struct {
@@ -244,14 +246,11 @@ func prepareUpdatedAssetState(serverRoot string, update *packUpdate, manifest pa
 		return err
 	}
 	update.summary.Disabled = len(state.Assets)
-	if len(state.CatalogPatches) > 0 {
-		update.warnings = append(update.warnings, "Pending catalog patches are retained; review them before restoring disabled files")
-	}
 	if len(state.Assets) == 0 {
 		return nil
 	}
 	update.hasState = true
-	next := assetState{UUID: state.UUID, Assets: make([]assetRecord, 0, len(state.Assets)), CatalogPatches: state.CatalogPatches}
+	next := assetState{UUID: state.UUID, Assets: make([]assetRecord, 0, len(state.Assets)), CatalogPatches: append([]assetPatch(nil), state.CatalogPatches...)}
 	if err := os.MkdirAll(update.newArchive, 0755); err != nil {
 		return err
 	}
@@ -308,6 +307,14 @@ func prepareUpdatedAssetState(serverRoot string, update *packUpdate, manifest pa
 		if err != nil || !info.IsDir() {
 			return fmt.Errorf("New subpack %s is missing", layer)
 		}
+		records, moved, added, reconciliationWarnings, err := reconcileUpdatedAssets(layerDir, filepath.Join(update.newArchive, layer), layer, records, state)
+		if err != nil {
+			return err
+		}
+		update.summary.Remapped += moved
+		update.summary.Added += added
+		update.summary.Disabled += added
+		update.warnings = append(update.warnings, reconciliationWarnings...)
 		edits, revised, catalogPatches, warnings, err := referenceEdits(layerDir, "archive", records)
 		if err != nil {
 			return err
@@ -345,6 +352,9 @@ func prepareUpdatedAssetState(serverRoot string, update *packUpdate, manifest pa
 			}
 			record.Hash, record.Size = hash, info.Size()
 			dest := filepath.Join(update.newArchive, layer, filepath.FromSlash(record.Path))
+			if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+				return err
+			}
 			if err := moveAssetFile(path, dest); err != nil {
 				return err
 			}
