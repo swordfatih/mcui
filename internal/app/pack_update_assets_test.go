@@ -177,3 +177,17 @@ func TestUpdateAssetsLocalArchive(t *testing.T) {
 		}
 	}
 }
+
+func TestReconcileDisabledTextureSetWithoutTerrainAlias(t *testing.T) {
+	layer := t.TempDir()
+	archive := t.TempDir()
+	putUpdateAsset(t, layer, "textures/blocks/pointed_dripstone_up_tip.texture_set.json", `{"minecraft:texture_set":{"color":"pointed_dripstone_up_tip"}}`)
+	records := []assetRecord{{Path: "textures/blocks/pointed_dripstone_up_tip.png", Layer: "SP2"}}
+	next, _, added, warnings, err := reconcileUpdatedAssets(layer, archive, "SP2", records, assetState{Assets: records})
+	if err != nil || added != 1 || len(next) != 2 || len(warnings) != 0 {
+		t.Fatalf("next=%v added=%d warnings=%v err=%v", next, added, warnings, err)
+	}
+	if next[1].Path != "textures/blocks/pointed_dripstone_up_tip.texture_set.json" {
+		t.Fatalf("wrong related file: %v", next[1])
+	}
+}

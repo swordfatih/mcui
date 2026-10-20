@@ -91,7 +91,8 @@ func reconcileUpdatedAssets(layerDir, archiveDir, layer string, records []assetR
 	}
 	data, err := os.ReadFile(filepath.Join(layerDir, "textures/terrain_texture.json"))
 	if os.IsNotExist(err) {
-		return records, moved, added, warnings, nil
+		data = []byte(`{"texture_data":{}}`)
+		err = nil
 	}
 	if err != nil {
 		return nil, 0, 0, nil, err
@@ -105,6 +106,14 @@ func reconcileUpdatedAssets(layerDir, archiveDir, layer string, records []assetR
 		return nil, 0, 0, nil, err
 	}
 	add := map[string]bool{}
+	// A disabled image's material definition must also be disabled even when
+	// there is no terrain alias patch (vanilla texture paths need no alias).
+	for path := range selected {
+		stem := assetTexturePath(path)
+		if stem != path && available[stem+".texture_set.json"] {
+			add[stem+".texture_set.json"] = true
+		}
+	}
 	for alias := range aliases {
 		for _, ref := range terrainTexturePaths(terrain.Textures[alias].Textures) {
 			if !assetRelative(ref) {
