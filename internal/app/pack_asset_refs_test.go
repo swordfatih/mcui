@@ -125,7 +125,7 @@ func TestCatalogPatchWaitsForAllTextures(t *testing.T) {
 	}
 }
 
-func TestReferenceEditsRemovesOnlyCompleteVanillaBlockOverrides(t *testing.T) {
+func TestReferenceEditsRemovesAffectedVanillaBlockOverrides(t *testing.T) {
 	layer := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(layer, "textures"), 0755); err != nil {
 		t.Fatal(err)
@@ -138,11 +138,17 @@ func TestReferenceEditsRemovesOnlyCompleteVanillaBlockOverrides(t *testing.T) {
 	}
 	records := []assetRecord{{Path: "textures/blocks/first.png", Layer: "SP2"}, {Path: "textures/blocks/second.png", Layer: "SP2"}}
 	edits, _, patches, warnings, err := referenceEdits(layer, "archive", records)
-	if err != nil || len(edits) != 2 || len(patches) != 1 {
+	if err != nil || len(edits) != 2 || len(patches) != 2 {
 		t.Fatalf("archive references: edits=%d patches=%+v warnings=%+v err=%v", len(edits), patches, warnings, err)
 	}
-	if patches[0].Key != "minecraft:complete" || patches[0].Layer != "SP2" || len(patches[0].Requires) != 2 {
-		t.Fatalf("wrong block restore patch: %+v", patches[0])
+	for _, patch := range patches {
+		want := 1
+		if patch.Key == "minecraft:complete" {
+			want = 2
+		}
+		if patch.Layer != "SP2" || len(patch.Requires) != want {
+			t.Fatalf("wrong block restore patch: %+v", patch)
+		}
 	}
 	var after map[string]json.RawMessage
 	for _, edit := range edits {
@@ -153,13 +159,13 @@ func TestReferenceEditsRemovesOnlyCompleteVanillaBlockOverrides(t *testing.T) {
 	if _, exists := after["minecraft:complete"]; exists {
 		t.Fatal("complete block override was retained")
 	}
-	if _, exists := after["minecraft:mixed"]; !exists {
-		t.Fatal("mixed block override was removed")
+	if _, exists := after["minecraft:mixed"]; exists {
+		t.Fatal("mixed block override with a dangling alias was retained")
 	}
 	if _, exists := after["demo:custom"]; !exists {
 		t.Fatal("custom block override was removed")
 	}
-	if len(warnings) != 2 {
+	if len(warnings) != 1 {
 		t.Fatalf("incomplete block references were not reported: %+v", warnings)
 	}
 }

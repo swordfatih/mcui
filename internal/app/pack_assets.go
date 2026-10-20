@@ -468,6 +468,26 @@ func (a *API) packAssets(w http.ResponseWriter, r *http.Request) {
 		bad(w, 400, "Invalid asset request")
 		return
 	}
+	if change.Action == "repair" && allowed[change.Layer] && len(change.Paths) == 0 {
+		layerDir, err := assetLayerPath(packDir, change.Layer)
+		if err != nil {
+			bad(w, 409, err.Error())
+			return
+		}
+		edits, next, changes, warnings, err := planAssetReferenceRepair(layerDir, change.Layer, state)
+		if err != nil {
+			bad(w, 409, err.Error())
+			return
+		}
+		if !change.Preview {
+			if err := applyAssetReferenceRepair(statePath, edits, next); err != nil {
+				bad(w, 500, err.Error())
+				return
+			}
+		}
+		respond(w, 200, map[string]any{"count": len(changes), "edits": len(edits), "changes": changes, "warnings": warnings})
+		return
+	}
 	if (change.Action != "archive" && change.Action != "restore") || !allowed[change.Layer] || len(change.Paths) == 0 || len(change.Paths) > 100 {
 		bad(w, 400, "Invalid asset request")
 		return

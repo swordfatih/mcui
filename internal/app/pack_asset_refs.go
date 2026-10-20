@@ -124,7 +124,11 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 					}
 					for _, patch := range record.Patches {
 						if patch.File == "textures/terrain_texture.json" {
-							removedAliases[patch.Key] = append(removedAliases[patch.Key], record.Path)
+							if len(patch.Requires) > 0 {
+								removedAliases[patch.Key] = append(removedAliases[patch.Key], patch.Requires...)
+							} else {
+								removedAliases[patch.Key] = append(removedAliases[patch.Key], record.Path)
+							}
 						}
 					}
 				}
@@ -143,7 +147,7 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 						continue
 					}
 					aliases := append(texturePaths(item["textures"]), texturePaths(item["carried_textures"])...)
-					matched, all := false, len(aliases) > 0
+					matched := false
 					required := map[string]bool{}
 					for _, alias := range aliases {
 						if dependencies, ok := removedAliases[alias]; ok {
@@ -151,14 +155,14 @@ func referenceEdits(layerDir string, action string, records []assetRecord, prior
 							for _, path := range dependencies {
 								required[path] = true
 							}
-						} else {
-							all = false
 						}
 					}
 					if !matched {
 						continue
 					}
-					if !all || (strings.Contains(block, ":") && !strings.HasPrefix(block, "minecraft:")) {
+					// Keeping even one disabled face in a vanilla override leaves a
+					// dangling alias. Remove the entire override to allow fallback.
+					if strings.Contains(block, ":") && !strings.HasPrefix(block, "minecraft:") {
 						warnings = append(warnings, "blocks.json: "+block+" still references a disabled texture alias; review this block")
 						continue
 					}
