@@ -208,6 +208,7 @@ func (p *PushManager) deliver(ctx context.Context, event playerEvent) {
 		for attempt := 0; attempt < 3; attempt++ {
 			status, err := p.send(ctx, payload, d.Subscription)
 			if status == http.StatusGone || status == http.StatusNotFound {
+				log.Printf("push subscription expired for server %q (HTTP %d)", event.Server, status)
 				p.mu.Lock()
 				old, exists := p.state.Devices[d.Subscription.Endpoint]
 				if exists && old.Subscription == d.Subscription {
@@ -221,6 +222,7 @@ func (p *PushManager) deliver(ctx context.Context, event playerEvent) {
 				break
 			}
 			if err == nil && status >= 200 && status < 300 {
+				log.Printf("push service accepted %s notification for server %q (HTTP %d)", event.Action, event.Server, status)
 				break
 			}
 			if attempt == 2 || status > 0 && status != 429 && status < 500 {

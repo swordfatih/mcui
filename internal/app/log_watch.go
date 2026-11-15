@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
@@ -93,8 +94,14 @@ func (l *LogWatch) run(name string, w *serverLogWatch) {
 	for {
 		err := l.poll(name, w)
 		w.mu.Lock()
+		previousErr := w.err
 		w.err = err
 		w.mu.Unlock()
+		if err != nil && (previousErr == nil || previousErr.Error() != err.Error()) {
+			log.Printf("server log watcher failed for %q; console and player notifications affected: %v", name, err)
+		} else if err == nil && previousErr != nil {
+			log.Printf("server log watcher recovered for %q", name)
+		}
 		if first {
 			close(w.ready)
 			first = false

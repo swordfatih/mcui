@@ -95,6 +95,30 @@ func TestParsePlayerStatus(t *testing.T) {
 	}
 }
 
+func TestPlayerQueryPort(t *testing.T) {
+	ports := []composePort{{Published: "29140", Target: 19140, Protocol: "udp"}, {Published: "29132", Target: 19132, Protocol: "tcp"}}
+	for _, tc := range []struct {
+		name, edition string
+		env           map[string]string
+		ports         []composePort
+		want          int
+	}{
+		{"nethernet", "bedrock", map[string]string{"TRANSPORT": "nethernet"}, ports, 19132},
+		{"auto", "bedrock", nil, ports, 19132},
+		{"legacy", "bedrock", map[string]string{"TRANSPORT": "raknet"}, ports, 19140},
+		{"unpublished signaling", "bedrock", map[string]string{"TRANSPORT": "nethernet"}, ports[:1], 19132},
+		{"custom port", "bedrock", map[string]string{"TRANSPORT": "nethernet", "SERVER_PORT": "19150"}, ports, 19150},
+		{"invalid port", "bedrock", map[string]string{"SERVER_PORT": "70000"}, ports, 19132},
+		{"java default", "java", nil, nil, 25565},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := playerQueryPort(tc.edition, composeService{Environment: tc.env, Ports: tc.ports}); got != tc.want {
+				t.Fatalf("query port %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPlayerStatusUsesExplicitContainerName(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "bedrock_ana")
@@ -108,8 +132,8 @@ func TestPlayerStatusUsesExplicitContainerName(t *testing.T) {
 	bin := t.TempDir()
 	script := `#!/bin/sh
 case "$*" in
-  *" config --format json") echo '{"services":{"mc":{"image":"itzg/minecraft-bedrock-server","container_name":"bedrock","ports":[{"published":"19132","target":19132,"protocol":"udp"}]}}}' ;;
-  "exec bedrock mc-monitor status-bedrock --host 127.0.0.1 --port 19132") echo '127.0.0.1:19132 : version=1.26.52 online=1 max=10' ;;
+  *" config --format json") echo '{"services":{"mc":{"image":"itzg/minecraft-bedrock-server","container_name":"bedrock","environment":{"TRANSPORT":"nethernet"},"ports":[{"published":"19140","target":19140,"protocol":"udp"},{"published":"29132","target":19132,"protocol":"tcp"}]}}}' ;;
+  "exec bedrock mc-monitor status-bedrock --host 127.0.0.1 --port 19132 --protocol nethernet") echo '127.0.0.1:19132 : version=1.26.63 online=1 max=10' ;;
   "stats --no-stream --format {{json .}} bedrock") echo '{"CPUPerc":"2.10%","MemUsage":"512MiB / 2GiB","MemPerc":"25.00%","NetIO":"1MB / 2MB","BlockIO":"3MB / 4MB","PIDs":"18"}' ;;
   "exec bedrock du -sk /data") echo '1048576 /data' ;;
   *) exit 1 ;;

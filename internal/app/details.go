@@ -500,6 +500,36 @@ func (a *API) serverResources(parent context.Context, name, kind string) (any, e
 
 var bedrockStatusPattern = regexp.MustCompile(`version=([^\s]+) online=([0-9]+) max=([0-9]+)`)
 
+// NetherNet's signaling/status TCP port is separate from its WebRTC UDP range.
+// Docker exec uses the container port, never the published host port.
+func playerQueryPort(edition string, service composeService) int {
+	port, protocol := 25565, "tcp"
+	if edition == "bedrock" {
+		port = 19132
+		protocol = "udp"
+		if service.Environment["TRANSPORT"] == "nethernet" {
+			protocol = "tcp"
+		}
+		if service.Environment["TRANSPORT"] != "raknet" {
+			for _, p := range service.Ports {
+				if p.Protocol == "tcp" || p.Protocol == "" {
+					protocol = "tcp"
+					break
+				}
+			}
+		}
+	}
+	if configured, err := strconv.Atoi(service.Environment["SERVER_PORT"]); err == nil && configured > 0 && configured <= 65535 {
+		return configured
+	}
+	for _, p := range service.Ports {
+		if p.Target > 0 && (p.Protocol == protocol || protocol == "tcp" && p.Protocol == "") {
+			return p.Target
+		}
+	}
+	return port
+}
+
 func parsePlayerStatus(edition string, output []byte) (playerStatus, error) {
 	result := playerStatus{Available: true, Players: []string{}}
 	if edition == "bedrock" {
@@ -559,18 +589,12 @@ func (a *API) playerStatus(parent context.Context, name string) (playerStatus, e
 		return playerStatus{}, err
 	}
 	command := []string{"exec", id, "mc-monitor"}
-	port := 25565
-	if server.Edition == "bedrock" {
-		port = 19132
-	}
-	for _, published := range config.Services[service].Ports {
-		if (server.Edition == "bedrock" && published.Protocol == "udp") || (server.Edition == "java" && (published.Protocol == "tcp" || published.Protocol == "")) {
-			port = published.Target
-			break
-		}
-	}
+	port := playerQueryPort(server.Edition, config.Services[service])
 	if server.Edition == "bedrock" {
 		command = append(command, "status-bedrock", "--host", "127.0.0.1", "--port", strconv.Itoa(port))
+		if transport := config.Services[service].Environment["TRANSPORT"]; transport == "nethernet" || transport == "raknet" {
+			command = append(command, "--protocol", transport)
+		}
 	} else {
 		command = append(command, "status", "--json", "--timeout", "5s", "--host", "127.0.0.1", "--port", strconv.Itoa(port))
 	}

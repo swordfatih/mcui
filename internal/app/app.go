@@ -70,10 +70,11 @@ func projectName(name string) string {
 }
 
 type composeService struct {
-	Image         string          `json:"image"`
-	ContainerName string          `json:"container_name"`
-	Volumes       []composeVolume `json:"volumes"`
-	Ports         []composePort   `json:"ports"`
+	Image         string            `json:"image"`
+	ContainerName string            `json:"container_name"`
+	Volumes       []composeVolume   `json:"volumes"`
+	Ports         []composePort     `json:"ports"`
+	Environment   map[string]string `json:"environment"`
 }
 
 type composePort struct {
